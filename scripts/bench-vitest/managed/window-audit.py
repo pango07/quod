@@ -1,4 +1,4 @@
-"""Independently audit the original cold managed Vitest window, as data only.
+"""Audit the original cold window under the frozen-slot policy, as data only.
 
 Usage: window-audit.py COORDINATOR_ROOT MANAGED_INDEX.json
 The caller verifies GitHub archive digests before extraction. The index is
@@ -40,12 +40,14 @@ EXPECTED = {'count': 47, 'file': 'server/stream.property.test.ts'}
 SOURCE_SHA = '9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75'
 # Pinned Linux binary from the independently verified c96 hardening artifact.
 WORKERD_SHA = 'a4d954a9ec17a367cf7d5509a2282785e84dacca6fc13b69c532ab25d157ef48'
-# Final remote build pins, supplied after build 42391658097 passed 22 checks.
-# A downloaded manifest or index may not choose these expected versions.
-ACTION_SHA = 'd79c8635f4dbc93c842ec1da8bd5ee6bf8e72928'
-HARNESS_SHA = '82f59245d12162ce1d998f0bc4eb068db38acc3d'
-MANAGED_SOURCE_SHA = '2a4d6f2f7547dd00e720a32d5b451229784ba8fb'
-RUNTIME_ARCHIVE_SHA = 'c3c10a88a496c9d155178d560e1be24170e41b31ffe03848aa39a98a1addb10b'
+# Frozen after candidate build 42396142682 passed 22 checks and the harness
+# was pinned independently. A downloaded manifest/index cannot choose them.
+ACTION_SHA = 'c77d86564686c439aa8e5b9d42a1f8573da771b8'
+HARNESS_SHA = '73c786a58cbc48597517b99b3e8eec47c898165f'
+MANAGED_SOURCE_SHA = '293afb713a1ceab141f290db8a002728298cb5c0'
+RUNTIME_ARCHIVE_SHA = '52025e46885ee48ba7cbdc81cb407fbead633fedbbb5f015794ec5e9703dd0fa'
+BOUNDARY_CONTRACT = 'quod-managed-v0-protectors-frozen-slots-investigation'
+INTRINSIC_POLICY = 'quod-managed-frozen-array-promise-slots-v1-probe'
 EXECUTION_SCHEMA = 'quod-managed-execution-v1-research'
 RECEIPT_SCHEMA = 'quod-managed-receipt-v1-research'
 BASE = {'epoch': 1700000000000, 'seed': 42, 'env': {'NODE_ENV': 'test'}}
@@ -228,8 +230,9 @@ def identity(row):
 def boundary_complete(b, allow_denied=False):
     exact(b, ['inventory', 'guarded', 'unguardable', 'symbolInventory', 'symbolUnguardable', 'unsupported',
               'timerErrors', 'unhandledErrors', 'pendingTimers', 'pendingTimerDetails', 'completion',
-              'virtualTime', 'logs', 'replayEligible', 'contract'], 'boundary')
-    require(b['contract'] == 'quod-managed-v0-investigation' and b['replayEligible'] is False, 'boundary policy differs')
+              'virtualTime', 'logs', 'replayEligible', 'intrinsicPolicy', 'contract'], 'boundary')
+    require(b['contract'] == BOUNDARY_CONTRACT and b['intrinsicPolicy'] == INTRINSIC_POLICY and
+            b['replayEligible'] is False, 'frozen-slot boundary policy differs')
     for key in ('inventory', 'guarded', 'unguardable', 'unsupported', 'timerErrors', 'unhandledErrors', 'symbolUnguardable'):
         require(isinstance(b[key], list) and all(isinstance(v, str) for v in b[key]), 'invalid boundary ' + key)
     for key in ('unguardable', 'timerErrors', 'unhandledErrors', 'symbolUnguardable'):
@@ -413,6 +416,7 @@ def audit_artifact(item, row, settings):
             {s['name']: s['sha256'] for s in prep['reviewedSources']} == PREPARATION_SOURCES, 'actual complete project selection differs')
     require(sorted(s['file'] for s in prep['selected']).count(CANDIDATE) == 1, 'candidate not selected exactly once')
     require(policy['schema'] == 'quod-managed-runtime-policy-v1-research' and policy['moduleName'] == 'worker.mjs' and
+            policy['boundaryContract'] == BOUNDARY_CONTRACT and policy['intrinsicPolicy'] == INTRINSIC_POLICY and
             policy['services'] == ['main', 'deny'] and policy['globalOutbound'] == 'deny' and policy['bindings'] == [] and
             policy['compatibilityDate'] == '2026-07-01' and policy['compatibilityFlags'] == ['nodejs_als'] and
             policy['request'] == {'method': 'GET', 'path': '/run'}, 'keyed runtime capabilities differ')
@@ -566,6 +570,9 @@ def audit_artifact(item, row, settings):
 
 
 def coordinator(root):
+    require(all(isinstance(value, str) and re.fullmatch('[a-f0-9]{40}', value)
+                for value in (ACTION_SHA, HARNESS_SHA, MANAGED_SOURCE_SHA)) and digest(RUNTIME_ARCHIVE_SHA),
+            'reviewed Action, harness and runtime archive pins have not been frozen')
     paths = inventory(root)
     find = lambda name: one(paths, lambda p: p.name == name, name)
     settings, rows, expected, manifest, metrics = read(find('settings.json')), jsonl(find('jobs.jsonl')), jsonl(find('expected.jsonl')), read(find('managed-window.json')), read(find('job-metrics.json'))
@@ -735,7 +742,8 @@ def main():
                 'issues': issues, 'verifiedManagedArtifacts': len(audited), 'settings': settings, 'summary': summary,
                 'method': {'archiveAuthentication': 'caller verifies raw GitHub API archive bytes/digest before extraction; index retains that provenance',
                            'reviewedProductPins': {'action': ACTION_SHA, 'harness': HARNESS_SHA,
-                               'managedSource': MANAGED_SOURCE_SHA, 'runtimeArchiveSha256': RUNTIME_ARCHIVE_SHA},
+                               'managedSource': MANAGED_SOURCE_SHA, 'runtimeArchiveSha256': RUNTIME_ARCHIVE_SHA,
+                               'boundaryContract': BOUNDARY_CONTRACT, 'intrinsicPolicy': INTRINSIC_POLICY},
                            'timing': 'GitHub job completed_at minus started_at; rounded minutes sum ceil(each job seconds/60); queue/coordinator excluded',
                            'fingerprint': 'fixed trusted JSON-data-only Node localeCompare helper; full original fingerprints pinned independently',
                            'fingerprintHelperSha256': sha(FINGERPRINT_JS), 'binaryIdentity': 'supervised workerd SHA pinned to independently verified hardening; binary is not inside job evidence',

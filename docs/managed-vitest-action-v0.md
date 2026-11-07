@@ -27,7 +27,15 @@ Performance validation for this candidate is pending. The completed or running
 window at Action `d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928` measures the earlier
 accessor policy and supplies no performance result for this candidate.
 
-The new candidate Action pin will be documented after its GitHub build and gates pass.
+After `setup-node`, optional usage pinned to the verified GitHub build is:
+
+```yaml
+- {uses: pango07/quod-action@c77d86564686c439aa8e5b9d42a1f8573da771b8, with: {managed-vitest: v0}}
+```
+
+The full boundary/product gate and 22 packaged Action checks passed. The fresh
+48-job cold-window evaluation is [running separately](https://github.com/pango07/ci-bench/actions/runs/42396324964).
+The same-runner diagnostic alone does not establish full-window savings.
 
 The initial profile handles
 `packages/convex-helpers/server/stream.property.test.ts` under the reviewed
