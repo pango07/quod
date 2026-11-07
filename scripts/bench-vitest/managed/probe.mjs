@@ -22,7 +22,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  boundaryChecksVersion: 2, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  boundaryChecksVersion: 3, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
   workerdSha256: sha(fs.readFileSync(workerd)), phases: []}
 write('result.json', results)
 

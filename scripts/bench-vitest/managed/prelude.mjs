@@ -60,6 +60,8 @@ globalThis.console = Object.fromEntries(consoleMethods.map(name => [name, (...ar
   logs.push([name, args.map(value => typeof value === 'string' ? value : String(value))])
 }]))
 globalThis.process = Object.freeze({env: Object.freeze({...options.env}), nextTick: (fn, ...args) => queueMicrotask(() => fn(...args))})
+Object.defineProperty(globalThis, 'navigator', {value: Object.freeze({userAgent: 'QuodManaged/0',
+  platform: 'QuodManaged', language: 'en-US', languages: Object.freeze(['en-US']), hardwareConcurrency: 1}), configurable: true})
 // Local synchronous events are used by Chai and Vitest. Their native timestamp
 // would expose host time; guard that observation before any framework import.
 Object.defineProperty(Event.prototype, 'timeStamp', {configurable: false, get: () => deny('Event.timeStamp')})
@@ -77,11 +79,22 @@ const allowed = new Set([
   'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'structuredClone',
   'AbortController', 'AbortSignal', 'DOMException', 'Event', 'EventTarget', 'queueMicrotask',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
-  'performance', 'console', 'process',
+  'performance', 'console', 'process', 'navigator',
 ])
+const managedGlobals = new Map(['Date', 'performance', 'console', 'process', 'navigator',
+  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate']
+  .map(key => [key, globalThis[key]]))
 const guarded = [], unguardable = []
 for (let owner = globalThis; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
   for (const key of Object.getOwnPropertyNames(owner)) {
+    // Installing an own property must not leave the original host API
+    // reachable through a descriptor on WorkerGlobalScope's prototype.
+    if (owner !== globalThis && managedGlobals.has(key)) {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+      if (!descriptor?.configurable) { unguardable.push('native alias ' + key); continue }
+      Object.defineProperty(owner, key, {value: managedGlobals.get(key), configurable: false})
+      continue
+    }
     if (allowed.has(key) || key === 'constructor') continue
     const descriptor = Object.getOwnPropertyDescriptor(owner, key)
     if (!descriptor?.configurable) { unguardable.push(key); continue }
@@ -103,7 +116,7 @@ if (options.vitest) globalThis.__vitest_worker__ = {
   environment: {name: 'quod-managed', viteEnvironment: 'ssr'},
 }
 
-export const runtime = {
+export const runtime = Object.freeze({
   options,
   finish(data) {
     if (pendingWake !== undefined) cancelWake(pendingWake)
@@ -113,4 +126,4 @@ export const runtime = {
       logs, replayEligible: false, contract: 'quod-managed-v0-investigation'}}
   },
   response(data) { return NativeResponse.json(data) },
-}
+})

@@ -9,6 +9,15 @@ export default {
       check('fixed date', Date.now() === runtime.options.epoch)
       check('constructor alias stays managed', new Date.prototype.constructor().getTime() === runtime.options.epoch)
       check('constructor prototype has no native Date', Object.getPrototypeOf(Date) === Function.prototype)
+      let aliasesManaged = true
+      for (let owner = Object.getPrototypeOf(globalThis); owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+        for (const key of ['Date', 'performance', 'navigator', 'console', 'process',
+          'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate']) {
+          const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+          if (descriptor && (descriptor.get || descriptor.value !== globalThis[key])) aliasesManaged = false
+        }
+      }
+      check('managed global aliases have no native prototype value', aliasesManaged)
       const random = [Math.random(), Math.random(), Math.random()]
       const local = new AsyncLocalStorage(), order = []
       const result = await Promise.all(['first', 'second'].map((name, index) => local.run(name, async () => {

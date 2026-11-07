@@ -11,7 +11,7 @@ result = read('result.json')
 assert result['cacheEnabled'] is False
 checks = []
 random = None
-check_count = 16 if result.get('boundaryChecksVersion', 1) >= 2 else 13
+check_count = {1: 13, 2: 16, 3: 17}[result.get('boundaryChecksVersion', 1)]
 for phase in result['phases']:
     name = phase['name']
     response = read(name + '/response.json')
@@ -39,7 +39,7 @@ for phase in result['phases']:
             'global fetch', 'global crypto', 'global WeakRef',
             'global WebAssembly', 'AbortSignal.timeout',
         }
-        if check_count == 16:
+        if check_count >= 16:
             denied |= {'global FinalizationRegistry', 'Event.timeStamp'}
         assert set(response['boundary']['unsupported']) == denied
         if random is None:
