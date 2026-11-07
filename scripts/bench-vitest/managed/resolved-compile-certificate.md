@@ -111,6 +111,24 @@ diagnostic and does not establish future tool closure under delegated API change
 The prior 108-instance SDK gate still compiled and hashed every actual complete
 bundle before receipt lookup; it did not rely on a compile-input certificate.
 
+The corrected [42413896155 gate](https://github.com/pango07/quod/actions/runs/42413896155)
+at `7a1f1b9fb12866f0fa1d55d5a18e5cd1b70baec8` also stopped safely before
+the first candidate build: all 55 compiler checks passed, but the strict tool
+epoch changed after native preparation; both 108-instance stages were skipped.
+Its retained result has zero pairs/checks and no before/after tool tuple, so the
+artifact alone does not prove the specific differing field. Archive 13590722389
+is 2,208,843 bytes with SHA-256
+`65889b17b74f57fe4ae56a6066a7edad63383be34a656db7427d5e9f1aa1a6f5`.
+The reviewed `prepareSuite` bootstrap explicitly assigns `TEST=true`,
+`VITEST=true` and `NODE_ENV ??= 'test'` before loading Vitest. The probe now
+performs these same assignments before the first certified factory and retains
+before/after initialization and after-preparation tuples. It preserves the
+strict keyed `NODE_ENV` identity: a later value change must reject and restoring
+the original value must recover. Epoch errors retain only expected/current
+tool digests, the two bounded compiler environment fields and differing top-level
+field names, so another observed mismatch can be diagnosed without dumping
+complete tool inventories or unrelated environment variables.
+
 Nonempty Node CLI flags and `NODE_OPTIONS`, `NODE_PATH`,
 `NODE_PRESERVE_SYMLINKS`, `NODE_COMPILE_CACHE` or `ESBUILD_BINARY_PATH` decline.
 `NODE_ENV` and `ESBUILD_WORKER_THREADS` remain keyed. These are on-disk hashes,

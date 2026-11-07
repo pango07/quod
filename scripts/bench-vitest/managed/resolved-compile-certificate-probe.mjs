@@ -9,6 +9,14 @@ import {createRequire} from 'node:module'
 import {captureResolvedCompileCertificate, validateResolvedCompileCertificates, readValidatedCompileIdentity, createCertifiedManagedCompiler, canonicalManagedJSON} from './resolved-compile-certificate.mjs'
 
 assert(process.env.GITHUB_ACTIONS === 'true', 'GitHub-only certificate investigation')
+const preparationEnvironment = () => Object.fromEntries(['TEST', 'VITEST', 'NODE_ENV'].map(key => [key, process.env[key] ?? null]))
+const bootstrapEnvironment = {beforeInitialization: preparationEnvironment()}
+// Match the existing finite matrix preparation bootstrap before loading tools.
+// The keyed compiler environment stays strict throughout the loaded epoch.
+process.env.TEST = 'true'
+process.env.VITEST = 'true'
+process.env.NODE_ENV ??= 'test'
+bootstrapEnvironment.afterInitialization = preparationEnvironment()
 // Only the remote tsconfig diagnostic uses this branch. It creates a new plain
 // Node process and therefore does not share the parent's loaded esbuild API.
 if (process.argv[2] === '--compile-child') {
@@ -46,6 +54,8 @@ if (process.argv[2] === '--matrix-evidence') {
   const [projectArg, matrixArg, outArg] = process.argv.slice(3)
   const project = fs.realpathSync(projectArg), matrix = fs.realpathSync(matrixArg), out = path.resolve(outArg)
   assert(!fs.existsSync(out)); fs.mkdirSync(out)
+  const saveBootstrap = () => fs.writeFileSync(path.join(out, 'bootstrap-environment.json'), JSON.stringify(bootstrapEnvironment, null, 2) + '\n')
+  saveBootstrap()
   const result = JSON.parse(fs.readFileSync(path.join(matrix, 'result.json'), 'utf8'))
   const candidates = result.instances.filter(row => row.decision === 'managed')
   assert(result.passed === true && result.selected === 120 && candidates.length === 108,
@@ -54,6 +64,7 @@ if (process.argv[2] === '--matrix-evidence') {
   const compile = await createCertifiedManagedCompiler({project})
   const {prepareManagedMatrix} = await import('./preparation.mjs')
   const currentSuite = await prepareManagedMatrix({project, seed: 42})
+  bootstrapEnvironment.afterPreparation = preparationEnvironment(); saveBootstrap()
   const currentCandidates = new Map(currentSuite.prepared.map(row => [row.instanceId, row]))
   assert(currentSuite.selected.length === 120, 'fresh full matrix selection differs')
   for (const row of candidates) {
@@ -92,6 +103,7 @@ if (process.argv[2] === '--matrix-evidence') {
       issues.push({instanceId: sizes[index].instanceId, reason: 'opaque proof differs'})
   }
   const evidence = {schema: 'quod-managed-resolved-compile-full-matrix-v1', passed: issues.length === 0,
+    bootstrapEnvironment,
     productionEnabled: false, receiptAdmission: false, nativeSelected: result.selected,
     nativeConformanceMatrixPassed: result.passed, candidates: sizes.length, captureSeconds, validationSeconds,
     scope: 'Current invocation bundles are read as data only; this step does not execute any retained artifact code or admit receipts.',
@@ -125,6 +137,7 @@ assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
 const fixture = path.join(project, '.quod-resolved-compile-fixture')
 assert(!fs.existsSync(fixture))
 const result = {schema: 'quod-managed-resolved-compile-certificate-probe-v1', passed: false,
+  bootstrapEnvironment,
   productionEnabled: false, receiptAdmission: false, nativePreparationAlwaysRuns: true,
   timingLimit: 'same-runner diagnostic only; no full-job or whole-window acceleration claim',
   atomicity: 'sampled before/after reads; active or adversarial workspace atomicity is not claimed',
@@ -136,6 +149,7 @@ const check = (name, pass) => { result.checks.push({name, pass: Boolean(pass)});
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const options = candidate => ({...base, vitest: candidate.config, file: '/project/' + candidate.file,
   providedContext: candidate.providedContext, ...(candidate.zodAlias ? {zodAlias: candidate.zodAlias} : {})})
+save()
 const compiler = await createCertifiedManagedCompiler({project})
 const fresh = await createCertifiedManagedCompiler({project, sourceTreeCache: false})
 const build = async (file, config, target = compiler) => target('runner.mjs', config, file)
@@ -330,6 +344,14 @@ async function warmToolControls(initial, seed, config, entry) {
     delegatedModule.exports = {...delegatedExports, createSourceFile: () => { throw new Error('QUOD_REPLACED_DELEGATED_TS_API') }}
     return {changed: 'delegated @typescript/old module.exports and used createSourceFile'}
   }, () => { delegatedModule.exports = delegatedExports })
+  const originalNodeEnv = process.env.NODE_ENV
+  await controls('compiler-environment-NODE_ENV', () => {
+    process.env.NODE_ENV = 'quod-epoch-environment-fixture'
+    return {before: originalNodeEnv, after: process.env.NODE_ENV}
+  }, () => {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = originalNodeEnv
+  })
 }
 async function apiRouteControls(seed, config, entry) {
   const here = path.dirname(fileURLToPath(import.meta.url)), own = createRequire(import.meta.url)
@@ -375,6 +397,7 @@ async function apiRouteControls(seed, config, entry) {
 try {
   const {prepareManagedMatrix} = await import('./preparation.mjs')
   const suite = await prepareManagedMatrix({project, seed: base.seed})
+  bootstrapEnvironment.afterPreparation = preparationEnvironment(); save()
   const rootFiles = new Set(['standardSchema.test.ts', 'server/stream.property.test.ts', 'server/stream.test.ts',
     'server/zod4.functions.test.ts', 'server/stream.distinct.test.ts'])
   const chosen = suite.prepared.filter(row => row.project === 'convex-helpers'

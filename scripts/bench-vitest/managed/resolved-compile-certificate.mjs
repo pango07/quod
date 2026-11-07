@@ -235,7 +235,18 @@ function snapshotAPIs(ctx, tools) {
 
 function assertCompilerEpoch(ctx) {
   assert(compilerEpoch && json(geometry(ctx)) === compilerEpoch.geometry, 'unknown compiler process epoch')
-  assert(json(toolIdentity(ctx)) === compilerEpoch.tools, 'compiler tool epoch changed')
+  const currentTools = toolIdentity(ctx)
+  if (json(currentTools) !== compilerEpoch.tools) {
+    const expectedTools = JSON.parse(compilerEpoch.tools)
+    const boundedEnvironment = value => Object.fromEntries(Object.entries(value).map(([key, entry]) =>
+      [key, typeof entry === 'string' ? entry.slice(0, 80) : entry]))
+    assert.fail('compiler tool epoch changed; ' + json({expectedToolsSha256: sha(compilerEpoch.tools),
+      currentToolsSha256: hash(currentTools),
+      expectedEnvironment: boundedEnvironment(expectedTools.environment),
+      currentEnvironment: boundedEnvironment(currentTools.environment),
+      changedTopLevelFields: [...new Set([...Object.keys(expectedTools), ...Object.keys(currentTools)])].sort()
+        .filter(key => json(expectedTools[key] ?? null) !== json(currentTools[key] ?? null))}))
+  }
   const current = toolCache(ctx, JSON.parse(compilerEpoch.tools))
   assert(current.size === compilerEpoch.modules.size && [...current].every(([file, module]) =>
     compilerEpoch.modules.get(file) === module), 'loaded compiler module epoch changed')
