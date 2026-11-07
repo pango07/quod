@@ -35,7 +35,7 @@ async function run(kind,enabled,serialization='advanced') {
 import v8 from 'node:v8';
 const enabled=${enabled},kind=${JSON.stringify(kind)};
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
-const values=[],order=[],copies=[],deliveryEvents=[];
+const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[];
 let preparations=0,gets=0,readId=0,activeRead=0;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
 const onread=pipe.onread;
@@ -53,8 +53,10 @@ function observer(message){
   if(values.length===(kind==='synthetic'?3:2)) {
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     p.close();process.removeListener('message',observer);
+    if(kind.startsWith('buffer-setter'))delete v8.Deserializer.prototype.buffer;
+    const rawCopiedValues=rawCopies.map(bytes=>{const d=new v8.Deserializer(bytes);d.readHeader();return d.readValue().value});
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
-      compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
+      rawCopiedValues,compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
 process.prependListener('message',observer);p.captureMessageObserver();
@@ -111,6 +113,17 @@ if(['constructor-copy','constructor-self-restore','constructor-proxy','construct
     Object.setPrototypeOf(v8.DefaultDeserializer,original);copyBytes(args[0]);return Reflect.construct(target,args,newTarget);
   }}):replacement);
 }
+if(kind.startsWith('buffer-setter')) {
+  function install(){Object.defineProperty(v8.Deserializer.prototype,'buffer',{configurable:true,set(bytes){
+    if(kind!=='buffer-setter')delete v8.Deserializer.prototype.buffer;
+    rawCopies.push(Buffer.from(bytes));
+    Object.defineProperty(this,'buffer',{configurable:true,writable:true,enumerable:true,value:bytes});
+  }})}
+  if(kind==='buffer-setter-late-install')Object.defineProperty(Uint8Array,Symbol.species,{configurable:true,get(){
+    gets++;delete Uint8Array[Symbol.species];install();return Uint8Array;
+  }});
+  else install();
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
@@ -147,7 +160,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['decoder-forged','advanced'],['header-self-restore','advanced'],['generator-copy','advanced'],
   ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced'],
   ['constructor-copy','advanced'],['constructor-self-restore','advanced'],['constructor-proxy','advanced'],
-  ['constructor-late-swap','advanced']]) {
+  ['constructor-late-swap','advanced'],['buffer-setter','advanced'],['buffer-setter-self-restore','advanced'],
+  ['buffer-setter-late-install','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -207,6 +221,18 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
           'the late swap must occur after the pre-construction chain check')
         assert(r.report.errors.includes('IPC native constructor has an unexpected caller'),
           'the actual native entry must reject the self-restored late replacement')
+      }
+    }
+    if(kind.startsWith('buffer-setter')) {
+      const expected=kind==='buffer-setter'?[1,2]:[1]
+      assert.deepEqual(r.rawCopiedValues,expected)
+      assert.deepEqual(r.rawCopiedValues,plain.rawCopiedValues,'the observer must not cause extra buffer copies')
+      assert(r.report.errors.includes('IPC decoder buffer initialization is observable'))
+      if(kind==='buffer-setter-late-install') {
+        assert.equal(r.gets,1)
+        const failures=r.report.decoder.failureFrames.filter(f=>f.reason==='IPC decoder buffer initialization is observable')
+        assert.deepEqual(failures.map(f=>f.kinds),[['native:construct']],
+          'late buffer setter must be detected at native entry, after the initial check')
       }
     }
     if(kind==='host-object'){assert.equal(r.report.decoder.hostEntries,2);assert(r.report.errors.includes('IPC host-object decoder callbacks are unverified'))}

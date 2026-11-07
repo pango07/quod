@@ -75,12 +75,29 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     if(fn.type!=='function'||!loc?.scriptId||loc.lineNumber!==line)throw Error('IPC constructor function differs from pinned Node')
     source(loc.scriptId,expected)
   }
+  function checkBufferInitialization(object) {
+    // Node's native Deserializer constructor uses ordinary Set for buffer.
+    // An inherited setter can retain its bytes and restore itself before
+    // readHeader. Inspect descriptors without invoking that setter, both
+    // before argument evaluation and at the actual native constructor entry.
+    for(let depth=0;depth<8;depth++) {
+      const p=properties(object)
+      if(p.result.some(p=>p.name==='buffer'))throw Error('IPC decoder buffer initialization is observable')
+      const parent=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+      if(parent?.subtype==='null')return
+      if(!parent?.objectId||parent.subtype==='proxy')throw Error('IPC decoder buffer prototype chain unavailable')
+      object=parent
+    }
+    throw Error('IPC decoder buffer prototype chain exceeds limit')
+  }
   function constructorChain(frame,objectGroup) {
     const ctor=evaluate(frame,'ChildProcessDeserializer',objectGroup)
     pinnedFunction(ctor,parserSource,38)
     if(!same(prototype(ctor),defaultConstructor)||!same(prototype(defaultConstructor),nativeConstructor))
       throw Error('IPC decoder constructor chain changed')
-    return data(properties(ctor).result,'prototype')
+    const proto=data(properties(ctor).result,'prototype')
+    checkBufferInitialization(proto)
+    return proto
   }
   function decoderRelease() {
     if(!decoding)return
