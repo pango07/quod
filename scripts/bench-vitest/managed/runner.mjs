@@ -34,7 +34,7 @@ export default {
       }
       globalThis.__vitest_worker__ = {
         config, ctx: {pool: 'quod-managed'}, environment: {name: 'quod-managed', viteEnvironment: 'ssr'},
-        onCleanup: fn => push(cleanups, fn), providedContext: {}, durations: {fetch: 0},
+        onCleanup: fn => push(cleanups, fn), providedContext: runtime.options.providedContext || {}, durations: {fetch: 0},
         rpc: new Proxy({snapshotSaved: () => {}}, {get(target, key) {
           if (own(target, key)) return target[key]
           return () => deny('vitest RPC ' + string(key))
@@ -65,8 +65,12 @@ export default {
       for (let index = 0; index < files.length; index++) {
         const file = files[index]
         visit(file, '')
-        if (file.result?.state !== 'pass') ok = false
-        push(fileRows, {name: string(file.name), state: string(file.result?.state || file.mode), errors: errorRows(file.result?.errors)})
+        const state = string(file.result?.state || file.mode), errors = errorRows(file.result?.errors)
+        // A native all-skipped/todo module is complete without a passing body.
+        // Retain its real state; the original v1 receipt validator still only
+        // admits its original passing workload. Unknown/cancelled states fail.
+        if (!['pass', 'skip', 'todo'].includes(state) || errors.length) ok = false
+        push(fileRows, {name: string(file.name), state, errors})
       }
       // Vitest flushes its task updates but leaves a throttled reporting timer.
       // Drain it through the same bounded policy as detached user callbacks;

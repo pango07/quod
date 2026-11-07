@@ -273,7 +273,16 @@ globalThis.console = Object.fromEntries(consoleMethods.map(name => [name, (...ar
   for (let index = 0; index < args.length; index++) arrayPush(values, NativeString(args[index]))
   arrayPush(logs, [name, values])
 }]))
-globalThis.process = Object.freeze({env: Object.freeze({...options.env}), nextTick: (fn, ...args) => managedMicrotask(() => reflectApply(fn, undefined, args))})
+// The declared environment is read-only. A caught write must remain an
+// unsupported operation, rather than becoming a native frozen-object error
+// that could be confused with an ordinary supported assertion failure.
+const declaredEnvironment = new Proxy(Object.freeze({...options.env}), {
+  set() { return deny('process.env mutation') },
+  deleteProperty() { return deny('process.env mutation') },
+  defineProperty() { return deny('process.env mutation') },
+  setPrototypeOf() { return deny('process.env mutation') },
+})
+globalThis.process = Object.freeze({env: declaredEnvironment, nextTick: (fn, ...args) => managedMicrotask(() => reflectApply(fn, undefined, args))})
 Object.defineProperty(globalThis, 'navigator', {value: Object.freeze({userAgent: 'QuodManaged/0',
   platform: 'QuodManaged', language: 'en-US', languages: Object.freeze(['en-US']), hardwareConcurrency: 1}), configurable: true})
 // Local synchronous events are used by Chai and Vitest. Their native timestamp
@@ -391,7 +400,7 @@ for (const [NativeFunction, ManagedFunction] of functionKinds) {
 globalThis.Function = functionKinds[0][1]
 globalThis.eval = () => deny('eval')
 if (options.vitest) globalThis.__vitest_worker__ = {
-  config: options.vitest, ctx: {pool: 'quod-managed'}, providedContext: {},
+  config: options.vitest, ctx: {pool: 'quod-managed'}, providedContext: options.providedContext || {},
   environment: {name: 'quod-managed', viteEnvironment: 'ssr'},
 }
 

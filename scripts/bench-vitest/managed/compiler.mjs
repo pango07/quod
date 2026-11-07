@@ -16,6 +16,19 @@ const isALS = name => name === 'node:async_hooks' || name === 'async_hooks'
 const privateSpecifier = name => name.startsWith('quod:') || name.startsWith('__QUOD_')
 const inside = (root, file) => file === root || file.startsWith(root + path.sep)
 const slash = value => value.replaceAll('\\', '/')
+// Exact published, lock-integrity-reviewed Zod util modules and their optional
+// evaluator capability probes. The managed runtime has no dynamic evaluator;
+// choose the library's existing interpreter path without attempting/catching a
+// prohibited capability. Actual evaluator calls keep all existing denials.
+const zodUtilAdapters = new Map([
+  ['4614d999e6a5b5a8bbdc0d3033647dbb7ea73f2594394224a145d9c43721c7ba', '85cbd8672064ea19f41dda8eb4565596afb3be3ce10a739fd64ee9b59a41ef22'],
+  ['c9dab88c4e7977e4ef0c536c07ef74515333050088bef04dbe871bb92f4a9a2d', '85cbd8672064ea19f41dda8eb4565596afb3be3ce10a739fd64ee9b59a41ef22'],
+  ['94d18b95a0fe1194758a8426f331f4e37a2d3a733ec64effe513265ecc963378', '85cbd8672064ea19f41dda8eb4565596afb3be3ce10a739fd64ee9b59a41ef22'],
+  ['e41f9e774b96a9fe2b04c08f5aad32e6db2f6aa090671d2a375e7062b4f178aa', '85cbd8672064ea19f41dda8eb4565596afb3be3ce10a739fd64ee9b59a41ef22'],
+  ['968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3', '8cd1a4f347c3d874337e22f0c9f9781d9b9d2de264f8345a96679f026f061c7f'],
+  ['e50c63d70e8b1abf2968936acf22c9e4e96e735f0af6d367785e0948e46553fa', '09f707d71b847ffc1c2af9ae9347df9b06a9302ef5cf3a3c5d292cdacb10e9cd'],
+  ['bb08133b11b478c8e715038fff26ebea204d7fd5443fba31fe138b142d202efb', '09f707d71b847ffc1c2af9ae9347df9b06a9302ef5cf3a3c5d292cdacb10e9cd'],
+])
 
 // Keys must be independent of insertion order. Values that JSON would silently
 // omit, coerce or invoke (including toJSON) are not admitted configuration.
@@ -106,6 +119,17 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
     const testFile = testFileArg ? fs.realpathSync(testFileArg) : null
     assert(!testFile || (inside(project, testFile) && !inside(root, testFile)), 'test entry must be inside project')
     const optionsJSON = canonicalManagedJSON(options)
+    // This is a finite adapter for the reviewed original Zod projects, not a
+    // general alias/plugin interpreter. Apply it to dependencies as well as
+    // tests so zod-compare and helper imports use the actual project version.
+    const zodAlias = options?.zodAlias ?? null
+    if (zodAlias !== null) {
+      assert(entry === 'runner.mjs' && typeof zodAlias === 'string' && /^zod-4\.[0-6]$/.test(zodAlias), 'unreviewed managed Zod alias')
+      assert.equal(options.vitest?.name, zodAlias, 'Zod alias differs from actual project')
+      assert.deepEqual(options.providedContext, {expectedZodAlias: zodAlias}, 'Zod context differs from alias')
+    } else if (options?.providedContext !== undefined) {
+      assert.deepEqual(options.providedContext, {}, 'unreviewed managed provided context')
+    }
     const started = performance.now(), globs = [], adapters = [], transforms = [], sources = [], resolutions = [], injected = new Set()
     const trusted = new Set([entryFile, prelude])
     const publicALS = new Set()
@@ -119,10 +143,12 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
       plugins: [{name: 'managed-closed-module-boundary', setup(builder) {
         const ordinaryResolution = async args => {
           let resolved
+          const requested = zodAlias && /^zod(?=\/|$)/.test(args.path)
+            ? zodAlias + args.path.slice(3) : args.path
           if (/^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/.test(args.path)) {
             resolved = {path: args.path === 'vitest' ? path.join(vitestRoot, 'dist/index.js') : fromProject.resolve(args.path)}
           } else {
-            resolved = await builder.resolve(args.path, {importer: args.importer, resolveDir: args.resolveDir,
+            resolved = await builder.resolve(requested, {importer: args.importer, resolveDir: args.resolveDir,
               kind: args.kind, namespace: 'file', pluginData: {managedDefaultResolution: true}})
             if (resolved.errors.length) return resolved
             assert(!resolved.external, 'unreviewed external module: ' + args.path)
@@ -217,6 +243,18 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
             assert(!resolved.errors?.length, 'original module cannot be resolved: ' + specifier)
             assert(!inside(root, resolved.path) || privateAdapterAllowed(file, resolved.path, specifier, kind),
               'original source resolves to a private managed adapter: ' + specifier)
+          }
+          if (/\/node_modules\/(?:zod|zod-4\.[0-6])\/v4\/core\/util\.js$/.test(slash(file))) {
+            const expectedProbe = zodUtilAdapters.get(sourceSha256)
+            assert(expectedProbe, 'unreviewed Zod optional-evaluator probe module')
+            const statements = original.statements.filter(statement => ts.isVariableStatement(statement) &&
+              statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === 'allowsEval'))
+            assert.equal(statements.length, 1, 'Zod allowsEval declaration changed')
+            const statement = statements[0], start = statement.getStart(original), end = statement.getEnd()
+            assert.equal(sha(contents.slice(start, end)), expectedProbe, 'Zod optional-evaluator probe changed')
+            contents = contents.slice(0, start) + 'export const allowsEval = cached(() => false);' + contents.slice(end)
+            adapters.push({source, sourceSha256, policy: 'Exact Zod optional evaluator probe disabled; existing interpreter fallback only; actual eval remains denied',
+              probeSha256: expectedProbe, adaptedSha256: sha(contents)})
           }
           if (file === path.join(vitestRoot, 'dist/chunks/spy.DPLvp2J7.js')) {
             assert.equal(sourceSha256, '537be954493014020a2c07df3e6cbc9e8eb3c5524911b19a43b8b4a3db1f4c0c')
@@ -354,7 +392,8 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
       schema: 'quod-managed-compile-v1-research', compilerSha256, esbuildVersion, typescriptVersion: ts.version,
       policy: {platform: 'browser', format: 'esm', target: 'es2022', external: ['node:async_hooks'],
         dynamicCode: 'private-sticky-denial-plus-runtime-constructor-guards',
-        importMeta: 'literal-relative-glob-names-only; all-other-access-sticky-denied', preparationAlwaysRuns: true},
+        importMeta: 'literal-relative-glob-names-only; all-other-access-sticky-denied', preparationAlwaysRuns: true,
+        ...(zodAlias ? {zodAlias, zodAliasPolicy: 'reviewed /^zod(?=\\/|$)/ replacement for every closed dependency'} : {})},
       entry: moduleName(entryFile), testEntry: testFile && moduleName(testFile), bundleSha256: sha256,
       configurationSha256: sha(optionsJSON), moduleNameSetsSha256: sha(canonicalManagedJSON(globs)),
       sources, resolutions, adapters, globs, transforms,

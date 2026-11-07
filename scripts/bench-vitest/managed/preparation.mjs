@@ -104,16 +104,71 @@ function reviewProject(project) {
   }
   return {sources, dataSources}
 }
-function prepareSpecification(specification, project, seed, reviewed) {
+const zodAliasPattern = /^zod-4\.[0-6]$/
+const zodImportPattern = /^zod(?=\/|$)/
+const viteAliasPatterns = new Set([/^\/?@vite\/env/.source, /^\/?@vite\/client/.source])
+
+function matrixAliases(p, project, zodAlias) {
+  const aliases = p.viteConfig.resolve.alias
+  assert(Array.isArray(aliases), 'resolved alias list required')
+  let zodRules = 0
+  const normalized = aliases.map(alias => {
+    assert(alias && typeof alias === 'object' && typeof alias.replacement === 'string' &&
+      alias.customResolver === undefined, 'custom alias resolver unsupported')
+    const find = alias.find
+    assert(find instanceof RegExp && find.flags === '', 'unreviewed string or flagged alias')
+    if (find.source === zodImportPattern.source) {
+      zodRules++
+      assert(zodAlias && alias.replacement === zodAlias, 'resolved Zod alias differs from project')
+    } else {
+      assert(viteAliasPatterns.has(find.source), 'unreviewed resolved alias: ' + find.source)
+      assert(alias.replacement.includes('/vite/dist/client/'), 'unreviewed Vite client alias target')
+    }
+    let replacement = alias.replacement
+    for (const prefix of ['', '/@fs/']) {
+      const start = prefix + project
+      if (replacement === start || replacement.startsWith(start + '/')) {
+        replacement = prefix + '/project' + replacement.slice(start.length)
+        break
+      }
+    }
+    assert(!replacement.includes(project), 'unreviewed checkout path in alias')
+    return {find: {source: find.source, flags: find.flags}, replacement}
+  })
+  assert.equal(zodRules, zodAlias ? 1 : 0, 'resolved Zod alias multiplicity differs')
+  return normalized
+}
+
+/** Stable identity of one actual TestSpecification, retaining project repeats. */
+export function describeManagedSpecification(specification, project) {
+  const absolute = fs.realpathSync(specification.moduleId)
+  assert(inside(project, absolute), 'selected file outside project')
+  const file = path.relative(project, absolute).split(path.sep).join('/')
+  const name = specification.project.config.name || ''
+  assert(typeof specification.pool === 'string' && typeof specification.taskId === 'string',
+    'actual specification pool and task identity required')
+  const selection = {pool: specification.pool, testLines: specification.testLines ?? null,
+    testIds: specification.testIds ?? null, testTagsFilter: specification.testTagsFilter ?? null,
+    testNamePattern: specification.testNamePattern ? {source: specification.testNamePattern.source,
+      flags: specification.testNamePattern.flags} : null}
+  const instance = {file, project: name, ...selection}
+  return {...instance, absolute, taskId: specification.taskId,
+    instanceId: sha(canonicalManagedJSON(instance))}
+}
+
+function prepareSpecification(specification, project, seed, reviewed, matrix = false) {
   const p = specification.project, absolute = fs.realpathSync(specification.moduleId)
   assert(inside(project, absolute), 'selected file outside project')
   const file = path.relative(project, absolute).split(path.sep).join('/')
-  assert.equal(p.config.name, 'convex-helpers')
+  const zodAlias = matrix && zodAliasPattern.test(p.config.name) ? p.config.name : undefined
+  assert(p.config.name === 'convex-helpers' || zodAlias, 'unreviewed project')
   assert.equal(p.config.root, path.join(project, 'packages/convex-helpers'))
   assert.equal(p.config.environment, 'edge-runtime')
   assert.equal(p.config.setupFiles.length, 0, 'test setup unsupported')
   assert(!p.config.globalSetup || p.config.globalSetup.length === 0, 'global setup unsupported')
-  assert.deepEqual(Object.keys(p.getProvidedContext()), [], 'provided context unsupported')
+  const providedContext = p.getProvidedContext()
+  canonicalManagedJSON(providedContext)
+  assert.deepEqual(providedContext, zodAlias ? {expectedZodAlias: zodAlias} : {}, 'provided context unsupported')
   const serialized = p.serializedConfig
   assert.equal(serialized.snapshotSerializers.length, 0)
   assert(!serialized.snapshotEnvironment)
@@ -131,35 +186,64 @@ function prepareSpecification(specification, project, seed, reviewed) {
     policy: 'reviewed original twelve-commit configuration; preparation always executes; no setup, snapshots, coverage or provided context',
     preparerSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), sources: reviewed.sources,
     configurationSha256: sha(canonicalManagedJSON(config)), omittedUndefined}
-  return {file, absolute, project: p.config.name, config, identity}
+  if (!matrix) return {file, absolute, project: p.config.name, config, identity}
+  const descriptor = describeManagedSpecification(specification, project)
+  assert.equal(descriptor.pool, 'forks', 'non-test pool unsupported')
+  assert(['testLines', 'testIds', 'testTagsFilter', 'testNamePattern'].every(key => descriptor[key] === null),
+    'filtered TestSpecification unsupported')
+  assert.equal(config.name, p.config.name, 'serialized project name differs')
+  assert.equal(config.isolate, true, 'per-file isolation required')
+  const aliases = matrixAliases(p, project, zodAlias)
+  const context = JSON.parse(canonicalManagedJSON(providedContext))
+  const matrixIdentity = {...identity, schema: 'quod-managed-matrix-preparation-v1-research',
+    policy: 'reviewed finite edge projects; exact Zod alias and plain provided context; one fresh realm per actual specification',
+    specification: {...descriptor, absolute: '/project/' + file}, aliases,
+    zodAlias: zodAlias || null, providedContext: context}
+  return {...descriptor, config, identity: matrixIdentity, aliases,
+    ...(zodAlias ? {zodAlias} : {}), providedContext: context}
 }
 
 /** Resolve all actual selected specifications once; decline individual targets. */
-export async function prepareManagedSuite({project: projectArg, files, seed}) {
+async function prepareSuite({project: projectArg, files, seed}, matrix) {
   const started = performance.now(), project = fs.realpathSync(path.resolve(projectArg))
   assert(Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffffffff, 'declared uint32 seed required')
   assert(files === undefined || Array.isArray(files) && files.every(file => typeof file === 'string'), 'invalid selection filters')
   const reviewed = reviewProject(project), require = createRequire(path.join(project, 'package.json'))
   assert.equal(require('vitest/package.json').version, '5.0.0')
+  if (matrix) {
+    process.env.TEST = 'true'
+    process.env.VITEST = 'true'
+    process.env.NODE_ENV ??= 'test'
+  }
   const {createVitest} = await import(pathToFileURL(require.resolve('vitest/node')).href)
   const ctx = await createVitest({root: project, watch: false, run: true, reporters: []})
   try {
     const specs = await ctx.globTestSpecifications(files?.map(file => path.resolve(project, file)))
-    const selected = specs.map(specification => ({file: path.relative(project, specification.moduleId).split(path.sep).join('/'),
-      absolute: specification.moduleId, project: specification.project.config.name}))
+    const selected = specs.map(specification => matrix ? describeManagedSpecification(specification, project)
+      : {file: path.relative(project, specification.moduleId).split(path.sep).join('/'),
+        absolute: specification.moduleId, project: specification.project.config.name})
+    if (matrix) assert.equal(new Set(selected.map(row => row.instanceId)).size, selected.length,
+      'duplicate actual specification identity')
     const prepared = [], declined = []
     for (let index = 0; index < specs.length; index++) {
-      try { prepared.push(prepareSpecification(specs[index], project, seed, reviewed)) }
+      try { prepared.push(prepareSpecification(specs[index], project, seed, reviewed, matrix)) }
       catch (error) { declined.push({...selected[index], reason: error.message}) }
     }
-    const evidence = {profile: 'convex-helpers-original-twelve',
+    const evidence = {profile: matrix ? 'convex-helpers-original-twelve-matrix' : 'convex-helpers-original-twelve',
       projects: ctx.projects.map(p => ({name: p.config.name, root: p.config.root})), selected,
       reviewedSources: reviewed.sources, reviewedDataSources: reviewed.dataSources,
       keyedInputs: 'executable configuration source bytes, actual selected resolved configuration, closed compiled module bytes; package and lock full bytes are finite admission evidence',
-      seconds: (performance.now() - started) / 1000}
+      seconds: (performance.now() - started) / 1000,
+      ...(matrix ? {prepared: prepared.map(row => ({instanceId: row.instanceId, file: row.file,
+        project: row.project, identity: row.identity})), declined} : {})}
     return {project, selected, prepared, declined, evidence}
   } finally { await ctx.close() }
 }
+
+export function prepareManagedSuite(options) { return prepareSuite(options, false) }
+
+/** Separate investigation profile; the existing single-file product is unchanged. */
+export function prepareManagedMatrix(options) { return prepareSuite(options, true) }
 
 /** Preserve the research probe's single-spec interface. */
 export async function prepareManagedProject({project, file, seed}) {
