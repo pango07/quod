@@ -9,6 +9,18 @@ export default {
     const checks = [], check = (name, pass) => checks.push({name, pass: Boolean(pass)})
     try {
       check('fixed date', Date.now() === runtime.options.epoch)
+      const winter = new Date('2020-01-15T12:34:56.000Z'), summer = new Date('2020-07-15T12:34:56.000Z')
+      check('native winter and summer dates use UTC', winter.getTimezoneOffset() === 0 && summer.getTimezoneOffset() === 0)
+      check('timezone-free date parsing uses UTC', Date.parse('2020-01-15T12:34:56') === Date.UTC(2020, 0, 15, 12, 34, 56) &&
+        Date.parse('2020-07-15T12:34:56') === Date.UTC(2020, 6, 15, 12, 34, 56))
+      check('numeric local date construction uses UTC', new Date(2020, 0, 15, 12, 34, 56).getTime() === winter.getTime() &&
+        new Date(2020, 6, 15, 12, 34, 56).getTime() === summer.getTime())
+      const named = new Error('local instance')
+      named.name = 'ManagedInstanceError'
+      const shadow = []
+      shadow.push = () => 'own method'
+      check('intrinsic locking permits ordinary instance shadowing', named.name === 'ManagedInstanceError' &&
+        Object.hasOwn(named, 'name') && shadow.push() === 'own method' && Object.hasOwn(shadow, 'push'))
       check('constructor alias stays managed', new Date.prototype.constructor().getTime() === runtime.options.epoch)
       check('constructor prototype has no native Date', Object.getPrototypeOf(Date) === Function.prototype)
       let aliasesManaged = true
@@ -67,6 +79,8 @@ export default {
       const data = runtime.finish({checks, random})
       check('caught rejection remains recorded', data.boundary.unsupported.length >= 15)
       check('no unguardable ambient properties', data.boundary.unguardable.length === 0)
+      check('ambient symbols expose only fixed primitive data or private guards', data.boundary.symbolUnguardable.length === 0 &&
+        data.boundary.symbolInventory.every(row => row.policy === 'fixed primitive data' || row.policy === 'guarded'))
       check('completion drains every managed effect', data.boundary.completion.sealed &&
         data.boundary.pendingTimers === 0 && data.boundary.completion.pendingTimerCallbacks === 0 &&
         data.boundary.completion.pendingMicrotasks === 0)

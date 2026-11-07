@@ -62,7 +62,7 @@ env:
 
 jobs:
   benchmark-managed-runtime:
-    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-runtime'
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-managed-runtime' || inputs.only == 'benchmark-managed-replay')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1540,3 +1540,112 @@ jobs:
         with:
           name: benchmark-config
           path: /tmp/quod-config-probe
+
+  # Research only: hardening must pass before recording or consuming receipts.
+  managed-replay-seed:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-replay'
+    needs: benchmark-managed-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      receipt_sha256: ${{ steps.seed.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Receipt mutation and failure admission matrix
+        run: node scripts/bench-vitest/managed/receipt-fixtures.mjs "$RUNNER_TEMP/receipt-checks"
+      - name: Record sealed managed execution
+        id: seed
+        run: node scripts/bench-vitest/managed/replay-probe.mjs seed "$PWD/profile-project" "$RUNNER_TEMP/seed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-replay-seed
+          path: |
+            ${{ runner.temp }}/seed
+            ${{ runner.temp }}/receipt-checks
+
+  managed-replay-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-replay'
+    needs: benchmark-managed-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Independent uncached managed control
+        run: node scripts/bench-vitest/managed/replay-probe.mjs control "$PWD/profile-project" "$RUNNER_TEMP/control"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-replay-control
+          path: ${{ runner.temp }}/control
+
+  managed-replay-consumer:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-replay'
+    needs: [managed-replay-seed, managed-replay-control]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: managed-replay-seed
+          path: ${{ runner.temp }}/download-seed
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: managed-replay-control
+          path: ${{ runner.temp }}/download-control
+      - name: Recompile and validate receipt on third fresh runner
+        env:
+          TRUSTED_RECEIPT_SHA256: ${{ needs['managed-replay-seed'].outputs.receipt_sha256 }}
+        run: >-
+          node scripts/bench-vitest/managed/replay-probe.mjs replay
+          "$PWD/profile-project" "$RUNNER_TEMP/replay"
+          "$RUNNER_TEMP/download-seed/seed/receipt.json" "$TRUSTED_RECEIPT_SHA256"
+          "$RUNNER_TEMP/download-control/result.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-replay-consumer
+          path: ${{ runner.temp }}/replay

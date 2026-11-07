@@ -3,12 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
-import net from 'node:net'
-import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
-import {spawn, spawnSync} from 'node:child_process'
+import {spawnSync} from 'node:child_process'
 import {createManagedCompiler} from './compiler.mjs'
 import {prepareManagedProject} from './preparation.mjs'
+import {createManagedExecutor} from './executor.mjs'
 
 const [projectArg, outArg] = process.argv.slice(2)
 const project = path.resolve(projectArg), out = path.resolve(outArg)
@@ -16,65 +15,25 @@ assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
 // Vitest resolves project patterns and CLI filters relative to cwd, just as
 // its ordinary CLI does. Setting root alone does not reproduce that context.
 process.chdir(project)
-const here = path.dirname(fileURLToPath(import.meta.url)), require = createRequire(import.meta.url)
-const workerd = path.join(path.dirname(require.resolve('workerd/package.json')), 'bin/workerd')
+const here = path.dirname(fileURLToPath(import.meta.url))
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  boundaryChecksVersion: 4, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
-  workerdSha256: sha(fs.readFileSync(workerd)), phases: []}
+  boundaryChecksVersion: 5, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  phases: []}
 write('result.json', results)
 
-async function freePort() {
-  const server = net.createServer()
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  const port = server.address().port
-  await new Promise(resolve => server.close(resolve))
-  return port
-}
-async function execute(name, bundle) {
-  const dir = path.join(out, name); fs.mkdirSync(dir)
-  fs.writeFileSync(path.join(dir, 'worker.mjs'), bundle)
-  fs.writeFileSync(path.join(dir, 'deny.mjs'), `export default {fetch(){console.error('QUOD_DENIED_OUTBOUND');throw new Error('outbound denied')}};\n`)
-  const port = await freePort()
-  fs.writeFileSync(path.join(dir, 'config.capnp'), `using Workerd = import "/workerd/workerd.capnp";
-const config :Workerd.Config = (
-  services = [
-    (name = "main", worker = (modules = [(name = "worker.mjs", esModule = embed "worker.mjs")],
-      compatibilityDate = "2026-07-01", compatibilityFlags = ["nodejs_als"], globalOutbound = "deny")),
-    (name = "deny", worker = (modules = [(name = "deny.mjs", esModule = embed "deny.mjs")],
-      compatibilityDate = "2026-07-01", globalOutbound = "deny"))
-  ],
-  sockets = [(name = "http", address = "127.0.0.1:${port}", http = (), service = "main")]
-);\n`)
-  const log = fs.openSync(path.join(dir, 'runtime.log'), 'w'), started = performance.now()
-  const child = spawn(workerd, ['serve', path.join(dir, 'config.capnp')], {
-    stdio: ['ignore', log, log], env: {PATH: process.env.PATH, TZ: 'UTC', LANG: 'C.UTF-8'},
-  })
-  let exit
-  const exited = new Promise(resolve => child.once('exit', (code, signal) => { exit = {code, signal}; resolve(exit) }))
-  try {
-    let ready = false
-    for (let i = 0; i < 80 && !exit; i++) {
-      try { const r = await fetch(`http://127.0.0.1:${port}/health`, {signal: AbortSignal.timeout(500)}); ready = r.ok } catch {}
-      if (ready) break
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    assert(ready, 'workerd did not become ready; inspect runtime.log')
-    const response = await fetch(`http://127.0.0.1:${port}/run`, {signal: AbortSignal.timeout(180000)})
-    const text = await response.text(); fs.writeFileSync(path.join(dir, 'response.json'), text)
-    assert(response.ok, `workerd returned HTTP ${response.status}`)
-    const data = JSON.parse(text)
-    const row = {name, seconds: (performance.now() - started) / 1000, responseSha256: sha(text), data}
-    results.phases.push(row); write('result.json', results)
-    console.log(JSON.stringify({phase: name, seconds: row.seconds, ok: data.ok, unsupported: data.boundary?.unsupported}))
-    return data
-  } finally {
-    if (!exit) child.kill('SIGTERM')
-    await exited; fs.closeSync(log)
-  }
-}
+const executor = createManagedExecutor({out, watchdogMs: 300000, onPhase(row) {
+  results.phases.push(row); write('result.json', results)
+  console.log(JSON.stringify({phase: row.name, seconds: row.seconds, ok: row.data.ok,
+    unsupported: row.data.boundary?.unsupported}))
+}})
+const {execute} = executor
+results.workerdSha256 = executor.runtimePolicy.workerdSha256
+results.runtimePolicy = executor.runtimePolicy
+results.host = executor.host
+write('result.json', results)
 // Compatibility is deliberately stricter than a green test report. No field
 // below grants replay admission; the shared Vitest realm is still under review.
 const supported = data => !data.error && data.boundary?.completion?.sealed === true &&
@@ -89,6 +48,14 @@ const normalizedRows = rows => {
 const compile = createManagedCompiler({project})
 
 try {
+  const receiptLog = fs.openSync(path.join(out, 'receipt-checks.log'), 'w')
+  let receiptChecks
+  try {
+    receiptChecks = spawnSync(process.execPath, [path.join(here, 'receipt-fixtures.mjs'), path.join(out, 'receipt-checks')],
+      {cwd: project, stdio: ['ignore', receiptLog, receiptLog], timeout: 30000})
+  } finally { fs.closeSync(receiptLog) }
+  assert.equal(receiptChecks.status, 0, 'receipt mutation/admission matrix failed; inspect receipt-checks.log')
+  results.receiptChecksPassed = true
   const compilerLog = fs.openSync(path.join(out, 'compiler-checks.log'), 'w')
   let compilerCheck
   try {

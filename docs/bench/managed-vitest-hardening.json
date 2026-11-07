@@ -1,0 +1,661 @@
+{
+  "schema": "quod-managed-hardening-evidence-v1",
+  "implementation": "441de9744baeab3a869e09581ce456781b37f0df",
+  "runUrl": "https://github.com/pango07/quod/actions/runs/42375428420",
+  "jobId": 128411921396,
+  "jobSeconds": 303,
+  "image": "ubuntu26/20261101.186.1",
+  "node": "v24.18.0",
+  "artifact": {
+    "id": 13575493256,
+    "bytes": 3127632,
+    "sha256": "069c4c1e298a8a378089bf1fb551f31aff29569d463fdfdbab4bbc13ead85e72"
+  },
+  "auditor": {
+    "auditPassed": true,
+    "integrityPassed": true,
+    "artifactComplete": true,
+    "boundaryChecksVersion": 4,
+    "issues": [],
+    "resultSha256": "2d06c194d99d784780a4ca698983962a5fccc97366642a26e1fb422b07eeef59",
+    "preflightChecksPerProcess": 26,
+    "preflightFreshProcesses": 2,
+    "preflightRandomValues": [
+      0.2523451747838408,
+      0.08812504541128874,
+      0.5772811982315034
+    ],
+    "compilerRegressionChecks": 40,
+    "boundaryFixtureModes": [
+      "control",
+      "interval",
+      "detached-timer-pending",
+      "detached-timer-rejection",
+      "unhandled-promise",
+      "async-event-listener",
+      "async-event-listener-pending",
+      "sync-event-listener",
+      "global-event-receiver",
+      "reflect-construct-clock",
+      "set-add-erasure",
+      "json-tojson-forgery",
+      "als-tampering"
+    ],
+    "expectedBoundaryFixtureModes": [
+      "control",
+      "interval",
+      "detached-timer-pending",
+      "detached-timer-rejection",
+      "unhandled-promise",
+      "async-event-listener",
+      "async-event-listener-pending",
+      "sync-event-listener",
+      "global-event-receiver",
+      "reflect-construct-clock",
+      "set-add-erasure",
+      "json-tojson-forgery",
+      "als-tampering"
+    ],
+    "ordinaryReportSha256": "7148aeae4e32f936a6d050b35c91040818a69c0c617ec9ea75dc4392d8222f98",
+    "ordinaryTestStates": 47,
+    "managedSupported": true,
+    "fallbackExecuted": false,
+    "namesAndStatesAgree": true,
+    "nativeOutboundDenied": true,
+    "fixtureEvidence": [
+      {
+        "mode": "pass",
+        "managedSupported": true,
+        "managedPassed": true,
+        "fallbackExecuted": false,
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.45668031600000175,
+        "ordinaryReportSha256": "2975c065d6e06aa4f70857e0fccee3c0218bab8d1e997671174820f2c3c9e77c",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "passed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      },
+      {
+        "mode": "failure",
+        "managedSupported": true,
+        "managedPassed": false,
+        "fallbackExecuted": false,
+        "ordinaryExit": 1,
+        "ordinarySeconds": 0.4583750419999997,
+        "ordinaryReportSha256": "cd7f823294ba0beb4811ba796a347e165c902a00661808736b26d446d0ae3263",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "failed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      },
+      {
+        "mode": "unsupported",
+        "managedSupported": false,
+        "managedPassed": true,
+        "fallbackExecuted": true,
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.4624540620000007,
+        "ordinaryReportSha256": "8737eb223deb148a249b8d8f515d32901f0e21d806f48554bd46360adcc0941a",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "passed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      }
+    ],
+    "moduleFixtureEvidence": [
+      {
+        "mode": "literal-import",
+        "managedSupported": true,
+        "managedPassed": true,
+        "rows": [
+          [
+            "literal module is in the closed bundle",
+            "passed"
+          ]
+        ],
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.4816801520000008,
+        "ordinaryReportSha256": "f9df76f9695304f503cd239f51dd88dfc14ff8dbb5888b7d1464bbf3be371587",
+        "fallbackExecuted": false
+      },
+      {
+        "mode": "computed-import",
+        "managedSupported": false,
+        "managedPassed": true,
+        "rows": [
+          [
+            "caught computed module import is sticky unsupported",
+            "passed"
+          ]
+        ],
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.4725755270000009,
+        "ordinaryReportSha256": "f09c512bea6d3671f00dcf6b629c732738c1398298a747101a3894220ac6959e",
+        "fallbackExecuted": true
+      },
+      {
+        "mode": "evaluation",
+        "managedSupported": false,
+        "managedPassed": true,
+        "rows": [
+          [
+            "caught Function construction is sticky unsupported",
+            "passed"
+          ],
+          [
+            "caught direct eval is sticky unsupported",
+            "passed"
+          ]
+        ],
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.46404880799999954,
+        "ordinaryReportSha256": "1f0a8ab96fb839c9ac4ebac81531fca8337cebde8ef52c1ab5e4e71a51f98b15",
+        "fallbackExecuted": true
+      },
+      {
+        "mode": "metadata",
+        "managedSupported": false,
+        "managedPassed": true,
+        "rows": [
+          [
+            "aliased module metadata is sticky unsupported when caught",
+            "passed"
+          ],
+          [
+            "computed module metadata access is sticky unsupported when caught",
+            "passed"
+          ],
+          [
+            "direct module resolution is sticky unsupported when caught",
+            "passed"
+          ]
+        ],
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.4591131229999992,
+        "ordinaryReportSha256": "b3594d4395fd8f52498cfc397bc82ccc3cb3734f10d028676ea31949a4f9ab33",
+        "fallbackExecuted": true
+      }
+    ],
+    "verifiedBuilds": {
+      "boundary-als-tampering-build.json": {
+        "sha256": "96d5201b5751732db18faa67924d6964d2f7c3d8d43a0062272a4025ebd7f0ba",
+        "identitySha256": "46bf35f5eaaa1e808ed909091023b860aa144cc53967042794e666c3de7f24b4",
+        "workerFiles": [
+          "boundary-als-tampering/worker.mjs"
+        ]
+      },
+      "boundary-async-event-listener-build.json": {
+        "sha256": "05e42c6c76a543c628d1f3500513339e6a588bd4a996441049c816b4b33e4cbf",
+        "identitySha256": "ab8c90eb2970c55f7eec4e1bc0b9a75856de9096986e3f9cc3e82e954443dde2",
+        "workerFiles": [
+          "boundary-async-event-listener/worker.mjs"
+        ]
+      },
+      "boundary-async-event-listener-pending-build.json": {
+        "sha256": "3a197911c7050847588405f1403d08704141de45dc3599d2e072ae40d826ba97",
+        "identitySha256": "88f8a07f006bf18a5e03e37575995ba4e5cad558a56fe01ca88777a03f2244be",
+        "workerFiles": [
+          "boundary-async-event-listener-pending/worker.mjs"
+        ]
+      },
+      "boundary-control-build.json": {
+        "sha256": "e4998d483f3295d6b0f3050fe24fc0f8fe6b138fa262dab9ef6b207d26918a11",
+        "identitySha256": "7470d3e608eb5570d709d1c52458fbf5556c8394fb748e8783e64ccf600f9043",
+        "workerFiles": [
+          "boundary-control/worker.mjs"
+        ]
+      },
+      "boundary-detached-timer-pending-build.json": {
+        "sha256": "d79b7cd8ba078573137f20715f5c7e619a398dcba6f98b9883e48d21f1e65f3a",
+        "identitySha256": "45d1b38fcd8f939aeb6723472859d275f45ad204a163acd82a1c13f7c53ba16e",
+        "workerFiles": [
+          "boundary-detached-timer-pending/worker.mjs"
+        ]
+      },
+      "boundary-detached-timer-rejection-build.json": {
+        "sha256": "e41247f43656b09c3b3916fee88561ba18260b508a4565e8e0e966cb46478811",
+        "identitySha256": "e9dfa3ae06a555b18273c2715bab9bc02378e426d9c30208315c96c041b0b18e",
+        "workerFiles": [
+          "boundary-detached-timer-rejection/worker.mjs"
+        ]
+      },
+      "boundary-global-event-receiver-build.json": {
+        "sha256": "da3b3a7ccff6fe8c21ce91baafb94680ff67c175041cefd1b76185ce25c80b2c",
+        "identitySha256": "ab436339d070d03e2ffa6d9062d49401f51f8584cf1ca98d6efb6e98e811c200",
+        "workerFiles": [
+          "boundary-global-event-receiver/worker.mjs"
+        ]
+      },
+      "boundary-interval-build.json": {
+        "sha256": "1b18f8b2ddb57a3e44ecfa1e2d6e9cd67de48ad3d6d51a248effdf81d933d3fd",
+        "identitySha256": "2f60297265b832d01317d3e10df70180a5dd6b5fe4e2a13aafaee513dc40db4e",
+        "workerFiles": [
+          "boundary-interval/worker.mjs"
+        ]
+      },
+      "boundary-json-tojson-forgery-build.json": {
+        "sha256": "f256f8bff7aee2c349c6bbae8ca68e657b412ac40667276683df45bdfdc747e3",
+        "identitySha256": "8105d55221bf42ece333775fc00dc795c3c4cb8b11601aed9fa512242fcda1dd",
+        "workerFiles": [
+          "boundary-json-tojson-forgery/worker.mjs"
+        ]
+      },
+      "boundary-reflect-construct-clock-build.json": {
+        "sha256": "2f16f14cda69c5b114b84d48ad18a2fa1a9d5ac3995e457b2ff1411bfe526c48",
+        "identitySha256": "6465d040231ae919fd5a1e363406e0e3f400cd525e0ec2124e627b7154bd3f1c",
+        "workerFiles": [
+          "boundary-reflect-construct-clock/worker.mjs"
+        ]
+      },
+      "boundary-set-add-erasure-build.json": {
+        "sha256": "1417e910701471bcec274815e8e7a1dd7f9ca45f19474375432a0bc9980ea133",
+        "identitySha256": "a58eb2f8c62cf0f3917eeca8c9ad7052feb9ecbc8b8203918de628e206931e0d",
+        "workerFiles": [
+          "boundary-set-add-erasure/worker.mjs"
+        ]
+      },
+      "boundary-sync-event-listener-build.json": {
+        "sha256": "c88d3eb3d4fb0e36aa5c954fd15c3c09e1316f9923c9286c6ed0c71245590c0f",
+        "identitySha256": "bd2d88ce10131cf157425ca05f4fc8de6762f3c2bbdf001716f37ee4c6971689",
+        "workerFiles": [
+          "boundary-sync-event-listener/worker.mjs"
+        ]
+      },
+      "boundary-unhandled-promise-build.json": {
+        "sha256": "d1cd1a33bd537bb428324b044a67dba4ce96d9a69113115b6b9f6225c690e57e",
+        "identitySha256": "db8d40cc0c1d294cc2fc0386da10094dc3ae7c7af0b695886a0951e0fc879736",
+        "workerFiles": [
+          "boundary-unhandled-promise/worker.mjs"
+        ]
+      },
+      "fixture-failure-build.json": {
+        "sha256": "e1dd533a9b23636a1dfbe1ba31973b33b20fae42d4e5db7e09cfb8292829cbee",
+        "identitySha256": "2574865c2de7954bcc10f2298a6a27727770c5df1577d242895ea6871c25d2af",
+        "workerFiles": [
+          "fixture-failure/worker.mjs"
+        ]
+      },
+      "fixture-pass-build.json": {
+        "sha256": "691c6f125b2298471f24bdb0fb83c2d2a047078bd99cebbf4e3c7c45b2153f64",
+        "identitySha256": "4962ca27fc55dcc6680a4c007e004baffb2050cd16dac9411317138f1324f607",
+        "workerFiles": [
+          "fixture-pass/worker.mjs"
+        ]
+      },
+      "fixture-unsupported-build.json": {
+        "sha256": "8a0bf7803bafaebaf28cd743e8d84d89490ed7c029e2280cf6bb95fc48e19743",
+        "identitySha256": "b0e5f0a7e28e1fca74b93a1f73eb878422e985e1d925caea740fc4f697e035bc",
+        "workerFiles": [
+          "fixture-unsupported/worker.mjs"
+        ]
+      },
+      "module-computed-import-build.json": {
+        "sha256": "0f6251af7fd45771a422c748824ddf0dc53a77aa0f0cdf7c0fe6e0db2642e7f1",
+        "identitySha256": "d1abedf29bfcd63835f2e570583cc3ead386adb68010b49b9f3b5757857215b5",
+        "workerFiles": [
+          "module-computed-import/worker.mjs"
+        ]
+      },
+      "module-evaluation-build.json": {
+        "sha256": "050df5314a6e6593baa642b8c9aeb4f6142f512f74c437bc5a722d916c37e894",
+        "identitySha256": "00668e41fedf8286cd4e5bed7ee6c47830bfee64f8403319c0b1dc07bdddd877",
+        "workerFiles": [
+          "module-evaluation/worker.mjs"
+        ]
+      },
+      "module-literal-import-build.json": {
+        "sha256": "395d23d2ca5c42923119e27160f9db1f1a256caf2dffde47258916f7e843cc46",
+        "identitySha256": "43c498df6d974fab70bba5cf17387fdd1476942cca0dff87562afaee45a6a280",
+        "workerFiles": [
+          "module-literal-import/worker.mjs"
+        ]
+      },
+      "module-metadata-build.json": {
+        "sha256": "5b85f14867571c48bdecd9d2c79567d20b5c9304707bd4175889bd6b887289ae",
+        "identitySha256": "683f070a6fe201f7f61af5118d9f6bfb402a150a35b95bc6ab4bb4400288167b",
+        "workerFiles": [
+          "module-metadata/worker.mjs"
+        ]
+      },
+      "native-outbound-build.json": {
+        "sha256": "05c5fb6b294151fca786d1ca55237f3d35b08af84d5a5b728bac74d9b0db0fe3",
+        "identitySha256": "32a21c659b74cab032936c42e413080fb2d4902655bdd0468b8f3d6b4a7b9ab2",
+        "workerFiles": [
+          "native-outbound/worker.mjs"
+        ]
+      },
+      "preflight-build.json": {
+        "sha256": "dbea9fe1fd1fac5df99a50707a186036f187c985b2113c925b764770ce30463c",
+        "identitySha256": "f339afe907c2d9613fea68d3b0a9bce4bb5505351221a8d766290caa02d4f03d",
+        "workerFiles": [
+          "preflight-one/worker.mjs",
+          "preflight-two/worker.mjs"
+        ]
+      },
+      "test-build.json": {
+        "sha256": "47ee9798150e9a6ee3498dcb67cf81ac11dd31255e75a4fe7cee963acb0fac5a",
+        "identitySha256": "ebcb190d420a98b8b16199e9871d83ce2c144f6c698e2c80e4e52f8f611a3c70",
+        "workerFiles": [
+          "managed/worker.mjs"
+        ]
+      },
+      "compiler-checks/als-named-bare.json": {
+        "sha256": "ea0d19513c8bd8a4772a44050e1914db6c6220e8c94f17ba3129f569de7f51db",
+        "identitySha256": "2ce572a97bd3a3e393c4719ed8a8dc38b823ca13cd621bd0d1f6b673ec88dc6c",
+        "workerFiles": [
+          "compiler-checks/als-named-bare.mjs"
+        ]
+      },
+      "compiler-checks/als-named.json": {
+        "sha256": "ea0d19513c8bd8a4772a44050e1914db6c6220e8c94f17ba3129f569de7f51db",
+        "identitySha256": "48f7b4762beba13881204c3d1c4b6cc97a6e1c1577a5ace11ac1b192daeffdcf",
+        "workerFiles": [
+          "compiler-checks/als-named.mjs"
+        ]
+      },
+      "compiler-checks/computed-import.json": {
+        "sha256": "cb5cbcd0fa52548c90606cfc0b8fdb154ad65692d094c62653c3363a3d7908aa",
+        "identitySha256": "f47933a85a216b9fabdc384e0e19cb73a1e12c385795c3a6debc331de93f94cd",
+        "workerFiles": [
+          "compiler-checks/computed-import.mjs"
+        ]
+      },
+      "compiler-checks/evaluation.json": {
+        "sha256": "cfe791ac1fdf0bb781ecb5e67306c5df87fda868d441eea63dfc8c126bebfc15",
+        "identitySha256": "a2a7b9065bb4ffdb68afab1953c3550e0a4c5feee3c349813dea6c6510f27675",
+        "workerFiles": [
+          "compiler-checks/evaluation.mjs"
+        ]
+      },
+      "compiler-checks/glob.json": {
+        "sha256": "89a6f940f1b38facbf1d7cb5346e7e35195be42b720d67495d2a58fb82bf4aa4",
+        "identitySha256": "545f2c10cc7d7ce192dbcc073ade3858df7bdd9407e4e231dc1f3880c88e6da7",
+        "workerFiles": [
+          "compiler-checks/glob.mjs"
+        ]
+      },
+      "compiler-checks/literal-import.json": {
+        "sha256": "bf9bcd3ff560d442953f1f4254d712875b4ce3bfdeb02f6fe85068dbd727ca33",
+        "identitySha256": "5d6fd43e27e8023b401f12af209266d5d69a66a279487e19a73c7336e0b60eb3",
+        "workerFiles": [
+          "compiler-checks/literal-import.mjs"
+        ]
+      },
+      "compiler-checks/metadata.json": {
+        "sha256": "8c8b2929b9eb2764eae45c1ce951953fc7d7bd7d35bb59c4a8a59613df97b5ea",
+        "identitySha256": "bbaa40b55148b7ba0710bb9539aa9f1d42963ffeab0b264d093892990b2352ab",
+        "workerFiles": [
+          "compiler-checks/metadata.mjs"
+        ]
+      }
+    },
+    "verifiedPhases": [
+      "preflight-one",
+      "preflight-two",
+      "native-outbound",
+      "boundary-control",
+      "boundary-interval",
+      "boundary-detached-timer-pending",
+      "boundary-detached-timer-rejection",
+      "boundary-unhandled-promise",
+      "boundary-async-event-listener",
+      "boundary-async-event-listener-pending",
+      "boundary-sync-event-listener",
+      "boundary-global-event-receiver",
+      "boundary-reflect-construct-clock",
+      "boundary-set-add-erasure",
+      "boundary-json-tojson-forgery",
+      "boundary-als-tampering",
+      "fixture-pass",
+      "fixture-failure",
+      "fixture-unsupported",
+      "module-literal-import",
+      "module-computed-import",
+      "module-evaluation",
+      "module-metadata",
+      "managed"
+    ],
+    "replays": 0,
+    "verifiedFiles": {
+      "boundary-als-tampering/config.capnp": "1593e2ac776e596f9196ab9c557c651239d3a8c8b96d344da11e903bc49b6e73",
+      "boundary-als-tampering/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-als-tampering/response.json": "e8587683fb69324eaa5de12f453ff2973b7d1c502f8b000270e9c145b893226d",
+      "boundary-als-tampering/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-als-tampering/worker.mjs": "96d5201b5751732db18faa67924d6964d2f7c3d8d43a0062272a4025ebd7f0ba",
+      "boundary-als-tampering-build.json": "56bbf2b157519948a6b6b895095eda9bb2ca5380c8745535c8b3ed23ca1eec52",
+      "boundary-async-event-listener/config.capnp": "ffd9dc57b207d316986c4ef0b1af8ff891562ae634a0b95edb81a42b78298dd5",
+      "boundary-async-event-listener/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-async-event-listener/response.json": "a04e2642224910835367ca794acc15f57ccb878a883cb3b1d813cc8142dae7ab",
+      "boundary-async-event-listener/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-async-event-listener/worker.mjs": "05e42c6c76a543c628d1f3500513339e6a588bd4a996441049c816b4b33e4cbf",
+      "boundary-async-event-listener-build.json": "e3bdc9c262587255dd2f22432eebc06922473da95f27eb7189aceff37840b76c",
+      "boundary-async-event-listener-pending/config.capnp": "36e299e18e50798d64f2b3d97884008b3c6b35599322706510b16a89826899b2",
+      "boundary-async-event-listener-pending/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-async-event-listener-pending/response.json": "4d01550f92963832270d5c315a1faf99af33a8391e5230c1a050ffb244318f33",
+      "boundary-async-event-listener-pending/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-async-event-listener-pending/worker.mjs": "3a197911c7050847588405f1403d08704141de45dc3599d2e072ae40d826ba97",
+      "boundary-async-event-listener-pending-build.json": "df4a3b4cdf0b1e8859f01793e3117212e7960f4622f80c640e669de354edc5a7",
+      "boundary-control/config.capnp": "7e607986329cf6a2b165862e964a53ae1e1bdc877e557d3f0db4d4cf182d03bc",
+      "boundary-control/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-control/response.json": "0024712aa6a903380e81b1c420ee8078e20380cbf37c705d56f047adf6f8fe24",
+      "boundary-control/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-control/worker.mjs": "e4998d483f3295d6b0f3050fe24fc0f8fe6b138fa262dab9ef6b207d26918a11",
+      "boundary-control-build.json": "593deecda1e5c8799dcf8c179a48c6a858d3929b41fb68c6234097ca26d85143",
+      "boundary-detached-timer-pending/config.capnp": "e8d22f7171bb8f684b1c8ef72f77253ebb92308a5487713c9375e7bf84ce2b0e",
+      "boundary-detached-timer-pending/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-detached-timer-pending/response.json": "84e3f461974a94e0181cbbbfdd379e6ed239681a977fefb967534502210d9fd3",
+      "boundary-detached-timer-pending/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-detached-timer-pending/worker.mjs": "d79b7cd8ba078573137f20715f5c7e619a398dcba6f98b9883e48d21f1e65f3a",
+      "boundary-detached-timer-pending-build.json": "67d3c85c9d07d974bea3aeb70e403720417c9693cc9ac7613c88aa85f2917ee9",
+      "boundary-detached-timer-rejection/config.capnp": "f68033c270c076b919b6403d17080a87f5d623cb6b4f2514049d681398727b98",
+      "boundary-detached-timer-rejection/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-detached-timer-rejection/response.json": "832f3c766e97f6bf11c4c6f255c58432fdc2d94f1677dd07d04f7290f527ee38",
+      "boundary-detached-timer-rejection/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-detached-timer-rejection/worker.mjs": "e41247f43656b09c3b3916fee88561ba18260b508a4565e8e0e966cb46478811",
+      "boundary-detached-timer-rejection-build.json": "843e4e710fe3eb82df87fe77454fbaa9e26b43aaf6527b05fbe661ba4710cb55",
+      "boundary-global-event-receiver/config.capnp": "a3255a8e9a2290e1caa0b1bf527da4e57c98d374622bba1e4e933fa64e47ed25",
+      "boundary-global-event-receiver/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-global-event-receiver/response.json": "893793d5be9b077e8996e73526c08baa3a25fd516a10f5e84511937a9659b64c",
+      "boundary-global-event-receiver/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-global-event-receiver/worker.mjs": "da3b3a7ccff6fe8c21ce91baafb94680ff67c175041cefd1b76185ce25c80b2c",
+      "boundary-global-event-receiver-build.json": "67a201bc4daa6a37879ef0cf64ed1165230c9755cb6e3386c4c631041150464c",
+      "boundary-interval/config.capnp": "28f2cd6418c173735be4487f4feb006d9aec196a71bd85ff7b6531fa76aa8d49",
+      "boundary-interval/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-interval/response.json": "4878d874ef2758e2192f5c5477ac340ffdfeafed971180201080781dd89e0e59",
+      "boundary-interval/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-interval/worker.mjs": "1b18f8b2ddb57a3e44ecfa1e2d6e9cd67de48ad3d6d51a248effdf81d933d3fd",
+      "boundary-interval-build.json": "320ac80d90caca4de2a5977f25f151b9c950ddc4796e7aa6393454c1dd1f6b5b",
+      "boundary-json-tojson-forgery/config.capnp": "73e32eb9c998743016407486545613a203cad8a21d8c49f964d3d1e7192c97ae",
+      "boundary-json-tojson-forgery/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-json-tojson-forgery/response.json": "413f21c56953ca3ca064aca14827a1c970864b3e8a01967a6327bd0ce0a5a70a",
+      "boundary-json-tojson-forgery/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-json-tojson-forgery/worker.mjs": "f256f8bff7aee2c349c6bbae8ca68e657b412ac40667276683df45bdfdc747e3",
+      "boundary-json-tojson-forgery-build.json": "c2f275fee470c25d385ed856c5c683ee8acb1234af8b365fb4878b3dd2de24e0",
+      "boundary-reflect-construct-clock/config.capnp": "0d3515586cba75808c328ad29077b7d88136e5f41ef1d85945629d37f9ff44d3",
+      "boundary-reflect-construct-clock/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-reflect-construct-clock/response.json": "e6111b5fed500bd7b17ff0fe2f0bee20910fabef0cc4a4aea67aad68b2ff24c0",
+      "boundary-reflect-construct-clock/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-reflect-construct-clock/worker.mjs": "2f16f14cda69c5b114b84d48ad18a2fa1a9d5ac3995e457b2ff1411bfe526c48",
+      "boundary-reflect-construct-clock-build.json": "a74b2723853fbe3cd42dce3d3034349e054d46aa0c42730f836233ebd1d3aeb5",
+      "boundary-set-add-erasure/config.capnp": "ff524f7dced343c10e4e16ed87fed94924d984c9da5f2d10e4cb17ed231ada70",
+      "boundary-set-add-erasure/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-set-add-erasure/response.json": "e32df617b449275e7d6cbab1202048361104bf7740aa70b1c4aff1cf5181484b",
+      "boundary-set-add-erasure/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-set-add-erasure/worker.mjs": "1417e910701471bcec274815e8e7a1dd7f9ca45f19474375432a0bc9980ea133",
+      "boundary-set-add-erasure-build.json": "b9e125ae82349f8120657ccc01d9ce11c1ec8d4a287e8e382e49582eb297b459",
+      "boundary-sync-event-listener/config.capnp": "10c15a8a8fa09eb10d80abad4a8a11050ca837b559d82e34cb6a42808f523bb5",
+      "boundary-sync-event-listener/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-sync-event-listener/response.json": "fb3c1530273eff60de38fbbec851e8619c8f32d40e0632f8ee5d38b5024ae140",
+      "boundary-sync-event-listener/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-sync-event-listener/worker.mjs": "c88d3eb3d4fb0e36aa5c954fd15c3c09e1316f9923c9286c6ed0c71245590c0f",
+      "boundary-sync-event-listener-build.json": "a14c1ce443f90c0a583e9445003fb55a5995877db42e47b8e754a7158f0562ec",
+      "boundary-unhandled-promise/config.capnp": "83683c796a4aa54849ad6d1b7cb5416e36a5edb3b86fbb4c0b991b06f55f4bf4",
+      "boundary-unhandled-promise/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "boundary-unhandled-promise/response.json": "b6e5aaccd1876c6da01891b0b63d06851dabf49e6cf7a015500b9bd37d50147c",
+      "boundary-unhandled-promise/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "boundary-unhandled-promise/worker.mjs": "d1cd1a33bd537bb428324b044a67dba4ce96d9a69113115b6b9f6225c690e57e",
+      "boundary-unhandled-promise-build.json": "62be9dd58d53ff32daf551b3b522cbf0ca18352f1c4dc3bea1a2333c2a11a0fe",
+      "compiler-checks/als-named-bare.json": "24ce1ca9c3b0467f3a5cfe1f68043999adec8a7a2fd1c300443f0e2fb0383588",
+      "compiler-checks/als-named-bare.mjs": "ea0d19513c8bd8a4772a44050e1914db6c6220e8c94f17ba3129f569de7f51db",
+      "compiler-checks/als-named.json": "ca98610f0170cec24c57256b5365e78fa5b47b124a60b49cdd07bfb293e38102",
+      "compiler-checks/als-named.mjs": "ea0d19513c8bd8a4772a44050e1914db6c6220e8c94f17ba3129f569de7f51db",
+      "compiler-checks/computed-import.json": "b1858535648ae02574930a25de68eebed15d6eec0d89952bf4031d973576f284",
+      "compiler-checks/computed-import.mjs": "cb5cbcd0fa52548c90606cfc0b8fdb154ad65692d094c62653c3363a3d7908aa",
+      "compiler-checks/evaluation.json": "eaa3a289aa67f6bbbe36f46de60356c3562151a5061194b8abc29f18315459ce",
+      "compiler-checks/evaluation.mjs": "cfe791ac1fdf0bb781ecb5e67306c5df87fda868d441eea63dfc8c126bebfc15",
+      "compiler-checks/glob.json": "20fb18f97e4e71c640322d53f7f328db6b2c4af6c56d9af54815a473b0c5e3c0",
+      "compiler-checks/glob.mjs": "89a6f940f1b38facbf1d7cb5346e7e35195be42b720d67495d2a58fb82bf4aa4",
+      "compiler-checks/literal-import.json": "bf8cf87ca246ecc6e4c215232718df9ef6f07e68c3d0e6159563c4003f7a0d9e",
+      "compiler-checks/literal-import.mjs": "bf9bcd3ff560d442953f1f4254d712875b4ce3bfdeb02f6fe85068dbd727ca33",
+      "compiler-checks/metadata.json": "96c625ddbae640302da923e49ffbc08f6449ddde888b6a7531fb34aaad1f18fd",
+      "compiler-checks/metadata.mjs": "8c8b2929b9eb2764eae45c1ce951953fc7d7bd7d35bb59c4a8a59613df97b5ea",
+      "compiler-checks/result.json": "0262ace3c69f22e322505c0b98f68b84c329888e7c443d53a6ba8ed78453f0aa",
+      "compiler-checks.log": "43e0ae22fcac2c5138e7736ad084483a3a155e67afdd08fe7d9daed0330f4100",
+      "fixture-failure/config.capnp": "21bd9861dd92d268aa0fcb2f6632ca3cc7f287deb915e3bff46742dcf1630400",
+      "fixture-failure/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "fixture-failure/response.json": "e76835c256d79dead75a14cdd2df0247faad6a523db24e96a88a3fc43eb2bdf7",
+      "fixture-failure/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixture-failure/worker.mjs": "e1dd533a9b23636a1dfbe1ba31973b33b20fae42d4e5db7e09cfb8292829cbee",
+      "fixture-failure-build.json": "d3e934c99ad4aa3f2303630cd918e0bff16b7bd7490221482f8f4a048cbb581f",
+      "fixture-failure-ordinary.json": "cd7f823294ba0beb4811ba796a347e165c902a00661808736b26d446d0ae3263",
+      "fixture-failure-ordinary.log": "7111c955a09d3c2a4e8728cde33619b6630ea097f6c9af22db12282833807b5a",
+      "fixture-pass/config.capnp": "54e5584f42978ff579700e5f17e4659def5387936496b61570eba0722471a9a0",
+      "fixture-pass/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "fixture-pass/response.json": "9bfb7ca7a3e58bf8893fcdb5250dde4615938decc1c83455ea311fb0f2472763",
+      "fixture-pass/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixture-pass/worker.mjs": "691c6f125b2298471f24bdb0fb83c2d2a047078bd99cebbf4e3c7c45b2153f64",
+      "fixture-pass-build.json": "8ec53f29744d8e3e85974f349ee3411078808ffbd336b59bd8b55f3db6fbd1ab",
+      "fixture-pass-ordinary.json": "2975c065d6e06aa4f70857e0fccee3c0218bab8d1e997671174820f2c3c9e77c",
+      "fixture-pass-ordinary.log": "08617f309947236794b91ea23829f1856cc602fd61aef0cdb6303b7cea6bbd56",
+      "fixture-unsupported/config.capnp": "3fcf8145a79bccf148288cbbef47946dc9dd87f9d39accbde53109b305f6cfb3",
+      "fixture-unsupported/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "fixture-unsupported/response.json": "c5063f5d93e347d3b847f5af8db3e2107fb999aa63915f1574f01080c98da3ef",
+      "fixture-unsupported/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixture-unsupported/worker.mjs": "8a0bf7803bafaebaf28cd743e8d84d89490ed7c029e2280cf6bb95fc48e19743",
+      "fixture-unsupported-build.json": "cf5ead09aa04379fabc2ed45ec0105f7e720215f42ac0d9a314aa08471e3b058",
+      "fixture-unsupported-ordinary.json": "8737eb223deb148a249b8d8f515d32901f0e21d806f48554bd46360adcc0941a",
+      "fixture-unsupported-ordinary.log": "9af9fd3ef9e3e4494a97974a07ac5b364f41b6ca19519b01fecfdd0d574f601c",
+      "managed/config.capnp": "049c10abc9333127e7fa72a4a785e350745c1d87a49794890f28cf0e66df36a9",
+      "managed/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "managed/response.json": "8d642aa46b3841ea92e58791d57476c2f7a72829af8613aac89f801b8d22ed6b",
+      "managed/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "managed/worker.mjs": "47ee9798150e9a6ee3498dcb67cf81ac11dd31255e75a4fe7cee963acb0fac5a",
+      "module-computed-import/config.capnp": "2bd76d7166974fe446953671ff1bbfd3ccc8f59e8c02a473d32eb128a7ad535d",
+      "module-computed-import/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "module-computed-import/response.json": "8ee12d6f26766649c6a49c709185f21f54b72158a92ece770496cba99c37c266",
+      "module-computed-import/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "module-computed-import/worker.mjs": "0f6251af7fd45771a422c748824ddf0dc53a77aa0f0cdf7c0fe6e0db2642e7f1",
+      "module-computed-import-build.json": "f039841c2dbf501c9339989d840b7759da5c079f65b5689698675e26e27944ff",
+      "module-computed-import-ordinary.json": "f09c512bea6d3671f00dcf6b629c732738c1398298a747101a3894220ac6959e",
+      "module-computed-import-ordinary.log": "00ce331dcee5d127325f47b10009d8e908fe4fdf509521dab0e2fe82493ab983",
+      "module-evaluation/config.capnp": "d7ba2fa5c1b3fd566915467f6c80379280f73febea7bb93f8140617673234be0",
+      "module-evaluation/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "module-evaluation/response.json": "15c386079823482cb6dc0bc6d2099dc4cf5781a605016e1b988dad038de9a681",
+      "module-evaluation/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "module-evaluation/worker.mjs": "050df5314a6e6593baa642b8c9aeb4f6142f512f74c437bc5a722d916c37e894",
+      "module-evaluation-build.json": "1b1ad89b5f926ace4f83ebb6554800601e3af9e2d33dd1aaa367124b289c3d64",
+      "module-evaluation-ordinary.json": "1f0a8ab96fb839c9ac4ebac81531fca8337cebde8ef52c1ab5e4e71a51f98b15",
+      "module-evaluation-ordinary.log": "67e86f0d2525a4bc1cb422f6711c66a54d5dc4f3a4090c8a07aaf030c3758925",
+      "module-literal-import/config.capnp": "7466fabfc9d172adbb929011933ad36cfcedf90b23c11ed775b96e26445e2f55",
+      "module-literal-import/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "module-literal-import/response.json": "e0f53c962bbe6fd8d660fe5283718e9d5ae937eb831f8ca3085f5192b60c1bb6",
+      "module-literal-import/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "module-literal-import/worker.mjs": "395d23d2ca5c42923119e27160f9db1f1a256caf2dffde47258916f7e843cc46",
+      "module-literal-import-build.json": "bcc97ed1d6859422ed903d5349c2bf7bf2b54ad5bb11894c6c711901975d469d",
+      "module-literal-import-ordinary.json": "f9df76f9695304f503cd239f51dd88dfc14ff8dbb5888b7d1464bbf3be371587",
+      "module-literal-import-ordinary.log": "ac1b5ec7919adab78455440a5c42c36f9eac2df5d83d2db56f42fa5813fcbaac",
+      "module-metadata/config.capnp": "5063ebbcf55177a8b016b761a60cc787fa60f4131cb71eac7c409ca3fff0d7f7",
+      "module-metadata/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "module-metadata/response.json": "ab4b5c82b0d75b039597a7347ea85b73c90473ba180cd1684c2b3accd3b630d4",
+      "module-metadata/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "module-metadata/worker.mjs": "5b85f14867571c48bdecd9d2c79567d20b5c9304707bd4175889bd6b887289ae",
+      "module-metadata-build.json": "c925be108b2459443dac363bfba659ac81a6832ed2312d32fce08c2dbfe84b94",
+      "module-metadata-ordinary.json": "b3594d4395fd8f52498cfc397bc82ccc3cb3734f10d028676ea31949a4f9ab33",
+      "module-metadata-ordinary.log": "006ffcbbc97e42dd94f731b6184c29cd4f4bbfe2ec722f7c41cdbce8beb2be78",
+      "native-outbound/config.capnp": "789c7a0aac1e47460f97ba310225600a6da872a6c8867a6bf57d8070a1bd165b",
+      "native-outbound/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "native-outbound/response.json": "f333eb4067feb0e52af64880acf28fd940caf17f780a787bef66d5e2fe203b83",
+      "native-outbound/runtime.log": "3a2f720e160a7178d685e0336e46eb0a4b541acb69f06bb3b774e97a5864c4fb",
+      "native-outbound/worker.mjs": "05c5fb6b294151fca786d1ca55237f3d35b08af84d5a5b728bac74d9b0db0fe3",
+      "native-outbound-build.json": "6f9c3edc5563227c4f21aacb4cd89373f2ad874983fa6c74da3a15356ba74752",
+      "ordinary-report.json": "7148aeae4e32f936a6d050b35c91040818a69c0c617ec9ea75dc4392d8222f98",
+      "ordinary.log": "913c5bedb536ef2feabc3f575f95d7b69f1867bc17d7b98707f5a445aee18ce8",
+      "preflight-build.json": "3f19a2820dd473538a1b403e333e8114429020911e7dbcc649efb9275c5ae7b0",
+      "preflight-one/config.capnp": "93fe99c26ccc071c099d77069e521a117be71dd6d7aacb2e18af9d6860a30227",
+      "preflight-one/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "preflight-one/response.json": "4f8aaeecbe7d4051b74a66bcfe439114fffbafbffe10abbb4962ddf37a27f4de",
+      "preflight-one/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight-one/worker.mjs": "dbea9fe1fd1fac5df99a50707a186036f187c985b2113c925b764770ce30463c",
+      "preflight-two/config.capnp": "afee6e1b6b513a1d11069b5c05e452114c7611498d50b78adf4e87b9e9a4f96b",
+      "preflight-two/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+      "preflight-two/response.json": "4f8aaeecbe7d4051b74a66bcfe439114fffbafbffe10abbb4962ddf37a27f4de",
+      "preflight-two/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight-two/worker.mjs": "dbea9fe1fd1fac5df99a50707a186036f187c985b2113c925b764770ce30463c",
+      "project-selection.json": "75b503cd9a3978100083269b501b9cf1b8240e0d1f7d23ac38c1ad2d00a8e3ee",
+      "result.json": "2d06c194d99d784780a4ca698983962a5fccc97366642a26e1fb422b07eeef59",
+      "test-build.json": "509571d99d66485e538c92c2e25e17c8623ffd08ec05e88ceb9cd01c8c0195e1"
+    }
+  },
+  "measurements": {
+    "managedSeconds": 158.521280119,
+    "ordinarySeconds": 83.54122327599997,
+    "compilerChecks": 40,
+    "moduleStates": 7
+  },
+  "completion": {
+    "sealed": true,
+    "nativeTurnFences": 2,
+    "timerCallbacks": 1,
+    "pendingTimerCallbacks": 0,
+    "pendingMicrotasks": 0,
+    "pendingEventCallbacks": 0,
+    "intrinsicLockdown": true,
+    "protectedIntrinsicObjects": 785,
+    "reason": ""
+  },
+  "cacheEnabled": false,
+  "replays": 0
+}

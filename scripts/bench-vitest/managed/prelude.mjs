@@ -251,7 +251,45 @@ const allowed = new Set([
 const managedGlobals = new Map(['Date', 'performance', 'console', 'process', 'navigator',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'queueMicrotask']
   .map(key => [key, globalThis[key]]))
-const guarded = [], unguardable = []
+const guarded = [], unguardable = [], symbolInventory = [], symbolUnguardable = []
+// String-name enumeration cannot close a realm if a host capability sits on a
+// symbol. Inspect descriptors without invoking getters; only fixed primitive
+// data survives. Receipt labels contain no live symbols or native references.
+let symbolOwnerIndex = 0
+for (let owner = globalThis; owner; owner = getPrototype(owner), symbolOwnerIndex++) {
+  const constructor = ownDescriptor(owner, 'constructor')
+  const constructorName = constructor && 'value' in constructor && typeof constructor.value === 'function'
+    ? ownDescriptor(constructor.value, 'name')?.value : undefined
+  const ownerName = symbolOwnerIndex === 0 ? 'globalThis'
+    : typeof constructorName === 'string' ? constructorName + '.prototype' : 'global prototype ' + symbolOwnerIndex
+  const keys = ownKeys(owner)
+  for (let index = 0; index < keys.length; index++) {
+    const key = keys[index]
+    if (typeof key !== 'symbol') continue
+    const descriptor = ownDescriptor(owner, key), name = NativeString(key)
+    const primitive = 'value' in descriptor && (descriptor.value === null ||
+      typeof descriptor.value !== 'object' && typeof descriptor.value !== 'function')
+    const label = ownerName + ' ' + name
+    let policy = 'fixed primitive data'
+    if (primitive) {
+      if (descriptor.configurable || descriptor.writable) defineOwn(owner, key, {...descriptor, writable: false, configurable: false})
+    } else if (descriptor.configurable) {
+      defineOwn(owner, key, {get: () => deny('global symbol ' + label), set: () => deny('global symbol mutation ' + label),
+        enumerable: descriptor.enumerable, configurable: false})
+      policy = 'guarded'
+    } else {
+      arrayPush(symbolUnguardable, label)
+      arrayPush(unguardable, 'native symbol ' + label)
+      policy = 'unguardable'
+    }
+    arrayPush(symbolInventory, {owner: ownerName, ownerIndex: symbolOwnerIndex, name,
+      descriptor: 'value' in descriptor ? 'data' : 'accessor',
+      valueType: 'value' in descriptor ? descriptor.value === null ? 'null' : typeof descriptor.value : 'accessor',
+      primitiveValue: primitive ? sameValue(descriptor.value, -0) ? '-0' : NativeString(descriptor.value) : '',
+      enumerable: !!descriptor.enumerable, configurable: !!descriptor.configurable,
+      writable: 'value' in descriptor ? !!descriptor.writable : false, policy})
+  }
+}
 for (let owner = globalThis; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
   for (const key of Object.getOwnPropertyNames(owner)) {
     // Installing an own property must not leave the original host API
@@ -377,7 +415,12 @@ function lockdown() {
         arrayPush(mutableSlots, {target, key, descriptor})
       } else if (descriptor.configurable && 'value' in descriptor && descriptor.writable) {
         const value = descriptor.value
-        const get = freeze(() => value), set = freeze(() => deny('intrinsic mutation ' + NativeString(key)))
+        const get = freeze(() => value), set = freeze(function (value) {
+          if (this === target || setHas(protectedObjects, this)) return deny('intrinsic mutation ' + NativeString(key))
+          // Preserve ordinary assignment through an inherited writable data
+          // property (Error instance names and subclass methods, for example).
+          defineOwn(this, key, {value, writable: true, enumerable: true, configurable: true})
+        })
         defineOwn(target, key, {get, set, enumerable: descriptor.enumerable, configurable: false})
       } else if (descriptor.configurable || descriptor.writable) {
         defineOwn(target, key, 'value' in descriptor ? {...descriptor, writable: false, configurable: false}
@@ -487,7 +530,7 @@ export const runtime = freeze({
     mapForEach(timers, timer => arrayPush(pendingTimerDetails, {id: timer.id, at: timer.at,
       repeat: timer.repeat, scheduledAt: timer.scheduledAt}))
     const asyncFailure = timerErrors.length || unhandledErrors.length
-    return {...data, ok: asyncFailure ? false : data.ok, boundary: {inventory, guarded, unguardable,
+    return {...data, ok: asyncFailure ? false : data.ok, boundary: {inventory, guarded, unguardable, symbolInventory, symbolUnguardable,
       unsupported: unsupportedValues, timerErrors, unhandledErrors, pendingTimers: mapSize(timers),
       pendingTimerDetails, completion, virtualTime: tick,
       logs, replayEligible: false, contract: 'quod-managed-v0-investigation'}}

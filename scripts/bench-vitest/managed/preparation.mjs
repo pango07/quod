@@ -61,6 +61,17 @@ export function canonicalizeManagedConfig(serialized, project) {
 
 export async function prepareManagedProject({project, file, seed}) {
   const started = performance.now(), sources = []
+  // A newly added higher-priority config must not evade the source pins while
+  // Vite silently selects it. This candidate supports only these known files.
+  for (const dir of ['', 'packages/convex-helpers', 'example-ui']) {
+    for (const stem of ['vitest.config', 'vite.config']) {
+      for (const extension of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs']) {
+        const name = path.posix.join(dir, stem + '.' + extension)
+        assert(!fs.existsSync(path.join(project, name)) || Object.hasOwn(pins, name),
+          'unsupported alternative preparation config: ' + name)
+      }
+    }
+  }
   for (const [name, expected] of Object.entries(pins)) {
     const actual = sha(fs.readFileSync(path.join(project, name)))
     assert.equal(actual, expected, 'unsupported preparation source: ' + name)
