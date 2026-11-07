@@ -88,7 +88,28 @@ export function moduleDetails(value) {
   }catch(e){return {available:false,reason:e.message,replayEligible:false}}
 }
 
-export function observeWorkerInputs(V) {
+// Compare diagnostic phases without conflating their explicitly assigned report
+// directories with application environment differences. Retain the full digest;
+// this comparison must never be used as a replay key or an environment policy.
+const reportDirectoryNames=new Set(['QUOD_WORKER_MODULE_METADATA_REPORT_DIR',
+  'QUOD_WORKER_MODULE_REPORT_DIR','QUOD_WORKER_CONFIG_REPORT_DIR'])
+export function diagnosticEnvironment(env,expected={}) {
+  const full=fingerprint(env)
+  try {
+    if(!full.available)throw Error('environment fingerprint unavailable')
+    if(!fingerprint(expected).available)throw Error('diagnostic directory assignment unavailable')
+    const original=values(env),owned=values(expected),copy=Object.create(null),excluded=[]
+    for(const [name,value] of Object.entries(owned)) {
+      if(!reportDirectoryNames.has(name)||typeof value!=='string'||!value.startsWith('/')||original[name]!==value)
+        throw Error('diagnostic report directory does not match its assigned value')
+      excluded.push(name)
+    }
+    for(const [name,value] of Object.entries(original))if(!own(owned,name))copy[name]=value
+    return {available:true,full,comparison:fingerprint(copy),excluded:excluded.sort(),replayEligible:false}
+  }catch(error){return {available:false,full,reason:error.message,replayEligible:false}}
+}
+
+export function observeWorkerInputs(V,{reportDirectories={}}={}) {
   const records=[],byWorker=new WeakMap(),restores=[]
   const failures=[]
   function state(worker,pool) {
@@ -108,7 +129,7 @@ export function observeWorkerInputs(V) {
           const w=values(worker)
           s.starts.push({packet:fields(message),context:fields(m.context),
             config:fields(values(m.context).config),sequence:fields(values(values(m.context).config).sequence??{}),
-            env:fingerprint(w.env),execArgv:fingerprint(w.execArgv)})
+            env:fingerprint(w.env),diagnosticEnvironment:diagnosticEnvironment(w.env,reportDirectories),execArgv:fingerprint(w.execArgv)})
         }
         else if(m.type==='run'||m.type==='collect') {
           const c=values(m.context)

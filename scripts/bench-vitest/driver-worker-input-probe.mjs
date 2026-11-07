@@ -47,8 +47,10 @@ if(phase) {
   const nodeEntry=pkg.exports['./node'],relative=typeof nodeEntry==='string'?nodeEntry:nodeEntry.import??nodeEntry.default
   const entry=path.join(path.dirname(packageFile),relative)
   const V=await import(pathToFileURL(entry).href)
+  const reportDirectories={}
   if(moduleMetadataProbe&&(phase==='after'||boundaryProbe&&phase==='before')) {
     const directory=path.join(out,boundaryProbe?'worker-boundary/'+phase:'worker-module-metadata')
+    reportDirectories.QUOD_WORKER_MODULE_METADATA_REPORT_DIR=directory
     fs.mkdirSync(directory,{recursive:true})
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
@@ -62,6 +64,7 @@ if(phase) {
   }
   if(moduleProbe&&phase!=='baseline') {
     const directory=path.join(out,'worker-modules',phase)
+    reportDirectories.QUOD_WORKER_MODULE_REPORT_DIR=directory
     fs.mkdirSync(directory,{recursive:true})
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
@@ -72,6 +75,7 @@ if(phase) {
   }
   if(phase==='after'&&process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
     const directory=path.join(out,'worker-config')
+    reportDirectories.QUOD_WORKER_CONFIG_REPORT_DIR=directory
     fs.mkdirSync(directory,{recursive:true})
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
@@ -81,7 +85,7 @@ if(phase) {
       return Reflect.apply(original,this,args)
     }
   }
-  const observer=phase==='baseline'?null:observeWorkerInputs(V)
+  const observer=phase==='baseline'?null:observeWorkerInputs(V,{reportDirectories})
   const progress=testProgressReporter(project,row=>
     fs.appendFileSync(path.join(out,phase+'-test-progress.jsonl'),JSON.stringify(row)+'\n'))
   try {
@@ -160,6 +164,10 @@ if(phase) {
       startContextChanged:diff(w.starts[0]?.context,next?.starts[0]?.context),
       runContextChanged:diff(w.runs[0]?.context,next?.runs[0]?.context),
       envEqual:!!next&&w.starts[0]?.env.available===true&&next.starts[0]?.env.available===true&&w.starts[0].env.hash===next.starts[0].env.hash,
+      diagnosticEnvironmentEqual:!!next&&w.starts[0]?.diagnosticEnvironment.available===true&&next.starts[0]?.diagnosticEnvironment.available===true&&
+        w.starts[0].diagnosticEnvironment.comparison.available===true&&next.starts[0].diagnosticEnvironment.comparison.available===true&&
+        JSON.stringify(w.starts[0].diagnosticEnvironment.excluded)===JSON.stringify(next.starts[0].diagnosticEnvironment.excluded)&&
+        w.starts[0].diagnosticEnvironment.comparison.hash===next.starts[0].diagnosticEnvironment.comparison.hash,
       execArgvEqual:!!next&&w.starts[0]?.execArgv.available===true&&next.starts[0]?.execArgv.available===true&&w.starts[0].execArgv.hash===next.starts[0].execArgv.hash,
       rpcComparable:canCompare,rpcEqual:canCompare?JSON.stringify(rpc(w))===JSON.stringify(rpc(next)):null,
       requestsBefore:w.requests.length,requestsAfter:next?.requests.length??null})
@@ -448,6 +456,7 @@ if(phase) {
   if(moduleProbe) {
     function loadModules(phase) {
       const directory=path.join(out,'worker-modules',phase)
+    reportDirectories.QUOD_WORKER_MODULE_REPORT_DIR=directory
       const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
       assert.equal(reports.length,120,'all isolated workers must report modules')
       const entries=reports.map(r=>[JSON.stringify([r.project,r.files]),r])
@@ -527,6 +536,7 @@ if(phase) {
   }
   if(process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
     const directory=path.join(out,'worker-config')
+    reportDirectories.QUOD_WORKER_CONFIG_REPORT_DIR=directory
     const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
     const workers=reports.flatMap(r=>r.reports)
     assert.equal(workers.length,120,'every worker must provide diagnostic evidence')

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import {fingerprint,moduleArtifact,moduleDetails,observeWorkerInputs} from './worker-input-probe.mjs'
+import {fingerprint,moduleArtifact,moduleDetails,observeWorkerInputs,diagnosticEnvironment} from './worker-input-probe.mjs'
 
 test('fingerprints preserve scalar distinctions, insertion order and graph identity',()=>{
   const vals=[undefined,null,false,0,-0,NaN,Infinity,-Infinity,'0',0n,[],{},Object.create(null)]
@@ -76,4 +76,28 @@ test('module bytes distinguish content changes while retaining different transpo
     assert.equal(moduleDetails({externalize:'node:fs',type:'builtin'}).kind,'external')
     assert.equal(x.replayEligible,false)
   }finally{fs.rmSync(dir,{recursive:true,force:true})}
+})
+
+test('diagnostic environment comparison accounts only for exactly assigned report paths',()=>{
+  const key='QUOD_WORKER_MODULE_METADATA_REPORT_DIR',secret='fixture-private-value'
+  const before={TOKEN:secret,MODE:'test',[key]:'/tmp/before'},after={TOKEN:secret,MODE:'test',[key]:'/tmp/after'}
+  const a=diagnosticEnvironment(before,{[key]:'/tmp/before'}),b=diagnosticEnvironment(after,{[key]:'/tmp/after'})
+  assert(a.available&&b.available);assert.notEqual(a.full.hash,b.full.hash)
+  assert.equal(a.comparison.hash,b.comparison.hash);assert.deepEqual(a.excluded,[key])
+  assert.equal(a.replayEligible,false);assert.equal(JSON.stringify(a).includes(secret),false)
+  assert.notEqual(a.comparison.hash,diagnosticEnvironment({...after,MODE:'different'},{[key]:'/tmp/after'}).comparison.hash)
+  assert.equal(diagnosticEnvironment(after,{[key]:'/tmp/before'}).available,false)
+  assert.equal(diagnosticEnvironment(after,{MODE:'test'}).available,false)
+  assert.equal(diagnosticEnvironment({[key]:'relative'},{[key]:'relative'}).available,false)
+  assert.deepEqual(before,{TOKEN:secret,MODE:'test',[key]:'/tmp/before'})
+})
+
+test('diagnostic environment comparison rejects accessors and proxies without invoking them',()=>{
+  let calls=0
+  const getter={get TOKEN(){calls++;return 'private'}}
+  const proxy=new Proxy({},{ownKeys(){calls++;return []}})
+  assert.equal(diagnosticEnvironment(getter).available,false)
+  assert.equal(diagnosticEnvironment(proxy).available,false)
+  assert.equal(diagnosticEnvironment({},{get QUOD_WORKER_MODULE_REPORT_DIR(){calls++;return '/tmp/x'}}).available,false)
+  assert.equal(calls,0)
 })
