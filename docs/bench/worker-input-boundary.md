@@ -2395,3 +2395,69 @@ native integrity, raw-byte alias exclusion, complete worker inputs and
 parent effects remain unproven. There are no product hits, lineage
 promotions or audits, and no production replay predicate changes. The
 full-window savings gap remains 630 runner-seconds.
+
+## Checks before IPC byte slicing
+
+Node's advanced IPC parser creates payload and remainder views with
+`TypedArrayPrototypeSubarray`. The [ECMAScript operation](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-%typedarray%.prototype.subarray)
+resolves the view's constructor and species and passes the underlying
+buffer to the selected constructor. A hook there can copy bytes before
+the decoder is entered, then restore itself. Checking the decoder's
+constructor chain alone does not detect that copy.
+
+The [regression-first gate](https://github.com/pango07/quod/actions/runs/42344251539)
+at `9ed17cc` demonstrates the gap: all 74 existing tests pass, but four new
+fixtures preserve plain values, ordering and byte-copy behavior while the
+old guard incorrectly reports itself available. These are a species
+constructor, its self-restoring form, a self-restoring species getter and
+a view-constructor getter. Replay eligibility remains false throughout;
+this finding is in the diagnostic, not evidence of a production replay.
+
+`558279a` checks descriptors before both slice operations. It validates
+the actual view prototype, constructor and species getter identity, plus
+the pinned Buffer getter and FastBuffer constructor chain. A captured
+native descriptor function preserves accessors that generic Inspector
+enumeration can expose as computed values. Descriptor reads reject proxy
+receivers, avoid enumerating byte indices and retain temporary handles in
+the decoder's existing object group. Initial native integrity remains
+uncertified.
+
+The [focused gate](https://github.com/pango07/quod/actions/runs/42344597820)
+passes 81 tests in 30.910 seconds. It includes the four original copy
+fixtures, a self-restoring Buffer species constructor, and normal messages
+split inside either their header or payload. Both split-message cases
+exercise Buffer slices and retain plain results. Earlier implementation
+gates rejected startup because of the native-accessor representation and
+incorrect source coordinates; those failures are retained in the evidence.
+
+The [full-workload gate](https://github.com/pango07/quod/actions/runs/42344684236)
+at the same commit passes 457 preflight tests and all three workload
+phases. Independent checks of the digest-verified artifact confirm that
+all 4,131 raw test states agree with plain execution across 120 file/project
+instances: 4,130 pass and one skips, before and after 39 timestamp changes.
+
+| Phase | Seconds | Compared with baseline |
+| --- | ---: | ---: |
+| Baseline | 67.713 | 1.000x |
+| Observed before metadata change | 101.307 | 1.496x |
+| Observed after metadata change | 102.194 | 1.509x |
+
+The two observed phases check 3,550 and 3,558 slices respectively, exactly
+two per decoded message, with no failures or pending reads. All 240 workers
+retain the first-preload startup contract and one-time handoff. The actual
+workload uses Uint8Array slices; Buffer slices are covered by the focused
+fragmentation regressions. All 3,260 read groups, 3,554 decoder groups and
+3,554 delivery groups are released. Each phase still reconciles all 2,581
+scalar reads with zero seed reads or transport failures.
+
+Evaluator code agrees in all 120 workers, while full compilation and RPC
+sequences still differ in every worker. The runner image is
+`ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0 and Vitest 5.0.0.
+The [evidence record](worker-message-dispatch.json) preserves the failed and
+passing gates, raw-source pins, counters, artifact manifest and log digests.
+
+These timings measure observation overhead, not product savings. Other
+raw-byte aliases, complete startup integrity, worker inputs and parent
+effects still need proof before this diagnostic can authorize replay.
+There are no product hits, lineage promotions or audits, no production
+replay-rule changes, and the full-window gap remains 630 runner-seconds.
