@@ -25,12 +25,15 @@ assert real_strace and node
 # This wrapper is outside the traced command. Preserve the trace after strace
 # exits and before the unmodified Quod binary parses and deletes its original.
 wrapper = '''#!/usr/bin/python3
-import os,pathlib,shutil,subprocess,sys
+import os,pathlib,shutil,subprocess,sys,tempfile
 args=sys.argv[1:]
 r=subprocess.run([REAL_STRACE,*args])
 if '-o' in args:
  p=pathlib.Path(args[args.index('-o')+1])
- if p.is_file(): shutil.copyfile(p,pathlib.Path(TRACE_DIR)/('trace-'+str(os.getpid())+'.log'))
+ if p.is_file():
+  fd,dest=tempfile.mkstemp(prefix='trace-',suffix='.log',dir=TRACE_DIR)
+  os.close(fd)
+  shutil.copyfile(p,dest)
 sys.exit(r.returncode)
 '''.replace('REAL_STRACE', repr(real_strace)).replace('TRACE_DIR', repr(str(traces)))
 (wrappers / 'strace').write_text(wrapper)
