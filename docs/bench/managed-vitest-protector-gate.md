@@ -34,10 +34,11 @@ async errors or pending timers, timer callbacks, microtasks or event callbacks.
 The added protector fixture passed 51 checks in each of two fresh processes.
 It covers the seven preserved descriptors, failed prototype and instance
 writes, explicit own-property definitions, species/subclass behavior and the
-remaining guards. Sixteen additional receipt checks reject missing, altered
-and earlier policy evidence, including externally digest-authorized receipts
-constructed under the earlier policy. These constructed admission fixtures are
-separate from actual worker execution.
+remaining guards. Sixteen additional policy and cross-profile receipt checks
+include positive identity/response controls and reject missing, altered and
+earlier policy evidence, including externally digest-authorized receipts
+constructed under the earlier policy. These constructed admission fixtures
+are separate from actual worker execution.
 
 All 12 dispatcher cases and 45 checks passed, including one receipt hit and
 ordinary fallback controls. Two mixed managed/native-remainder controls passed

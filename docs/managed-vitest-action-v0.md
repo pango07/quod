@@ -23,9 +23,13 @@ managed contract; attempts through the guarded descriptor-mutation entry
 points remain unsupported. The default Action mode remains `off`.
 Receipts from the earlier accessor policy cannot be admitted under this policy.
 
-Performance validation for this candidate is pending. The completed or running
-window at Action `d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928` measures the earlier
-accessor policy and supplies no performance result for this candidate.
+The completed [cold window](bench/managed-vitest-frozen-cold-window.md) records
+857 runner-seconds and 20 modeled minutes against the fresh ordinary
+baseline's 1,848 seconds and 35 minutes. It meets the conservative 50%
+runner-time bar against both ordinary references. The 50% modeled-minute
+and floor-plus-8-second full-job bars remain unmet. All eleven receipt hits
+are partial; the 119 other native test instances and original release tail
+still execute.
 
 After `setup-node`, optional usage pinned to the verified GitHub build is:
 
@@ -33,9 +37,12 @@ After `setup-node`, optional usage pinned to the verified GitHub build is:
 - {uses: pango07/quod-action@c77d86564686c439aa8e5b9d42a1f8573da771b8, with: {managed-vitest: v0}}
 ```
 
-The full boundary/product gate and 22 packaged Action checks passed. The fresh
-48-job cold-window evaluation is [running separately](https://github.com/pango07/ci-bench/actions/runs/42396324964).
-The same-runner diagnostic alone does not establish full-window savings.
+The full boundary/product gate, 22 packaged Action checks and independent
+48-job [cold-window audit](https://github.com/pango07/ci-bench/actions/runs/42396324964)
+passed. Every original test name and state is preserved. Native reporter
+metadata compatibility remains incomplete, as documented in the window
+evidence. The fixed-order same-runner diagnostic does not establish a general
+causal performance claim.
 
 The initial profile handles
 `packages/convex-helpers/server/stream.property.test.ts` under the reviewed
