@@ -61,6 +61,36 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  benchmark-managed-runtime:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-runtime'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm install --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Managed boundary, unchanged expensive test, ordinary fallback
+        run: node scripts/bench-vitest/managed/probe.mjs "$PWD/profile-project" "$RUNNER_TEMP/managed-runtime"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-runtime
+          path: |
+            ${{ runner.temp }}/managed-runtime
+            scripts/bench-vitest/managed/package-lock.json
+
   # Which jobs this event runs (docs/ci.md, "Triggers"). Rust gates run
   # when anything outside cloud/ changed, the cloud job when cloud/ changed.
   # A push, or a new commit on a pull request, runs lint, merge-gate and
