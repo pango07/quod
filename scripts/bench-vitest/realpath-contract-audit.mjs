@@ -9,11 +9,14 @@ const [projectArg,binaryArg,outArg,expected,sourceArg]=process.argv.slice(2)
 assert.ok(['stale','correct'].includes(expected))
 const project=path.resolve(projectArg),binary=path.resolve(binaryArg),out=path.resolve(outArg)
 assert.equal(fs.existsSync(out),false);fs.mkdirSync(out,{recursive:true})
+// Keep mutation outside the project: otherwise changing its directory
+// metadata can force every file to run and mask an incomplete realpath key.
+const inputs=path.join(out,'inputs');fs.mkdirSync(inputs)
 for(const dir of ['realpath-a','realpath-b']) {
-  fs.mkdirSync(path.join(project,dir),{recursive:true})
-  fs.writeFileSync(path.join(project,dir,'input'),'identical bytes\n')
+  fs.mkdirSync(path.join(inputs,dir),{recursive:true})
+  fs.writeFileSync(path.join(inputs,dir,'input'),'identical bytes\n')
 }
-const link=path.join(project,'realpath-current')
+const link=path.join(inputs,'realpath-current'),input=path.join(link,'input')
 fs.rmSync(link,{force:true});fs.symlinkSync('realpath-a',link)
 const operations={
   sync:`fs.realpathSync(input)`,
@@ -26,12 +29,12 @@ const files=[]
 for(const [name,expression] of Object.entries(operations)) {
   const file=`realpath-${name}.test.mjs`;files.push(file)
   fs.writeFileSync(path.join(project,file),`import fs from 'node:fs';import {test,expect} from 'vitest';
-const input='realpath-current/input';
+const input=${JSON.stringify(input)};
 test(${JSON.stringify(name)},async()=>expect(${expression}).toMatch(/\\/realpath-a\\/input$/));\n`)
 }
 files.push('realpath-control.test.mjs')
 fs.writeFileSync(path.join(project,files.at(-1)),`import fs from 'node:fs';import {test,expect} from 'vitest';
-test('content control',()=>expect(fs.readFileSync('realpath-current/input','utf8')).toBe('identical bytes\\n'));\n`)
+test('content control',()=>expect(fs.readFileSync(${JSON.stringify(input)},'utf8')).toBe('identical bytes\\n'));\n`)
 fs.writeFileSync(path.join(project,'vitest.config.mjs'),`export default {css:{postcss:{}},test:{include:${JSON.stringify(files)},maxWorkers:1}};\n`)
 const env={...process.env,QUOD_VITEST_LINEAGE:'0',QUOD_VITEST_TIMING:'off',
   QUOD_VITEST_NAMES_PROOF:'0',QUOD_VITEST_BOOLEAN_PROOF:'0'}
