@@ -495,7 +495,7 @@ jobs:
           name: unit-metadata-fixed
           path: /tmp/quod-unit-metadata
       - name: config names proof adversarial regressions
-        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/env-record.test.mjs
+        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/env-record.test.mjs crates/quod-cli/src/vitest/fs-descriptor-record.test.mjs
       - name: clippy
         run: cargo clippy --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e -- -D warnings
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -544,6 +544,13 @@ jobs:
         run: node scripts/bench-vitest/stat-type-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod"
       - name: Built binary invalidates descriptor-exposed environment values
         run: node scripts/bench-vitest/env-descriptor-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod" /tmp/quod-env-built correct
+      - name: Built binary rejects untracked descriptor metadata and retains content replay
+        run: node scripts/bench-vitest/fs-descriptor-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod" /tmp/quod-fd-built correct
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: fs-descriptor-built
+          path: /tmp/quod-fd-built
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -747,6 +754,41 @@ jobs:
         with:
           name: convex-profile-current
           path: /tmp/quod-profile-current/evidence
+
+  benchmark-fd-contract:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-fd-contract'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: a1b9a37a4bf38e1883a4afc07d397616fa985942
+          path: descriptor-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+        working-directory: descriptor-action/test
+      - name: Check descriptor fallback and ordinary read behavior
+        run: node --test crates/quod-cli/src/vitest/fs-descriptor-record.test.mjs
+      - name: Require stale baseline, corrected fallback and old-ledger invalidation
+        run: |
+          mkdir /tmp/quod-fd-contract-bin
+          echo '00b99d670054bed66f4111bec627c1366f2b110145abc2efcecd9985cf9af1c0  descriptor-action/dist/quod/bin-2bd297b.tar.gz' | sha256sum -c -
+          tar -xzf descriptor-action/dist/quod/bin-2bd297b.tar.gz -C /tmp/quod-fd-contract-bin
+          node scripts/bench-vitest/fs-descriptor-audit.mjs "$PWD/descriptor-action/test" /tmp/quod-fd-contract-bin/quod /tmp/quod-fd-contract/baseline stale
+          node scripts/bench-vitest/fs-descriptor-audit.mjs "$PWD/descriptor-action/test" /tmp/quod-fd-contract-bin/quod /tmp/quod-fd-contract/fixed correct "$PWD/crates/quod-cli/src/vitest"
+          node scripts/bench-vitest/fs-descriptor-audit.mjs "$PWD/descriptor-action/test" /tmp/quod-fd-contract-bin/quod /tmp/quod-fd-contract/upgrade correct "$PWD/crates/quod-cli/src/vitest" upgrade
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: fs-descriptor-contract
+          path: /tmp/quod-fd-contract
 
   benchmark-env-contract:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-env-contract'

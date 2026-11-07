@@ -487,6 +487,12 @@ export function patchFs(r, { sync = true } = {}) {
   const nativeStatSync = fs.statSync
   wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.statProof?.statType(a, nativeStatSync) ? 'st' : 'sm', a[0]))
   both(['lstat'], (a) => r.add('sl', a[0]))
+  // A descriptor's metadata is not represented by the content dependency
+  // recorded at open(). The descriptor may also refer to an unlinked file,
+  // a reused number, or a pipe, so a later pathname lookup is not a key.
+  for (const name of ['fstat', 'fstatSync']) {
+    wrap(fs, name, () => r.unobs('descriptor metadata is not tracked'))
+  }
   both(['access'], (a) => {
     const mode = a[1] ?? 0
     if (Number.isInteger(mode) && mode >= 0 && mode <= 7) r.add(`a${mode}`, a[0])
@@ -502,9 +508,18 @@ export function patchFs(r, { sync = true } = {}) {
     r.add(o && typeof o === 'object' && o.recursive ? 'r' : 'd', a[0])
   }
   both(['readdir', 'opendir'], dir)
-  both(['open'], (a) => {
+  const open = (a) => {
     if (isRead(a[1])) r.add('f', a[0])
     if (isWrite(a[1])) r.write(a[0])
+  }
+  wrap(fs, 'open', open)
+  wrap(fs, 'openSync', open)
+  // FileHandle methods call internal bindings directly: wrapping fs.fstat
+  // does not cover handle.stat(), nor descriptor writes through that object.
+  // Until the handle's complete lifetime/effects are observed, run it plain.
+  wrap(P, 'open', (a) => {
+    open(a)
+    r.unobs('FileHandle operations are not tracked')
   })
   const w0 = (a) => r.write(a[0])
   both(
