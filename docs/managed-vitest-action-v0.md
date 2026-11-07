@@ -45,6 +45,14 @@ does not defend against an authorized malicious cache publisher. The existing
 Action rules forbid fork pull requests, `pull_request_target` and `workflow_run`
 jobs from publishing managed receipts.
 
+The Action keeps its cache-service session in a private job-local file, injects
+it only while calling the cache SDK, restores the bridge environment before
+ordinary child execution, and removes the file in its post step. Evidence
+uploads exclude this file and the Action configuration. This accommodates the
+runner's separate environment handling for
+[JavaScript actions](https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/NodeScriptActionHandler.cs)
+and [shell steps](https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandler.cs).
+
 The Linux x64 runtime is packaged on GitHub from a full Quod source commit and
 shipped with the Action. Its archive digest is verified before extraction; the
 project job does not install the runtime from npm. `cache-namespace` isolates
