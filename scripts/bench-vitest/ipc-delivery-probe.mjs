@@ -8,6 +8,8 @@ const childSource='0c2e2cc568bb1651aec25c8a9c7178380dfde9b4ac772b02c6286536ee498
 const parserSource='59f0124b35fa9127200c10c5aa206b60ceaf0951d11947ce3e9a4afb1844f4f2'
 const v8Source='ed24392fbc14a67d065dedb839b975719c262f03a3b2bcf2c6aeb278a05e700d'
 const asyncSource='08a5d05e584c48a6f51edd61e1e6cb117906d763e521e4b8dc2c7227462bbdca'
+const bufferSource='85699dbf250b11767414f73c8912ef5b5578ae8f361730cdb2331763efa29ef7'
+const internalBufferSource='ce1f2b80ecaf7f4d8ef3ff5d40e77e48c4413760e1a743c8c1b24cabfc1c25d8'
 const lineNumber=650
 export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending IPC limit')
@@ -17,6 +19,8 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const decoder={started:0,constructorEntries:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const reads={entries:0,directEntries:0,trampolineEntries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
+  const slices={entries:0,checked:0,uint8:0,buffer:0,failures:0}
+  let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter
   let reading=null,readReturn=null
   let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
@@ -48,9 +52,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     if(r.exceptionDetails||!r.result)throw Error('IPC delivery local unavailable')
     return r.result
   }
-  function properties(remote) {
+  function properties(remote,nonIndexedPropertiesOnly=false) {
     if(!remote?.objectId||remote.subtype==='proxy')throw Error('IPC decoder object unavailable')
-    const r=post('Runtime.getProperties',{objectId:remote.objectId,ownProperties:true,generatePreview:false})
+    const r=post('Runtime.getProperties',{objectId:remote.objectId,ownProperties:true,generatePreview:false,nonIndexedPropertiesOnly})
     if(r.exceptionDetails)throw Error('IPC decoder descriptors unavailable')
     return r
   }
@@ -72,6 +76,35 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const p=properties(object).internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
     if(!p?.objectId||p.subtype==='proxy')throw Error('IPC decoder prototype unavailable')
     return p
+  }
+  function descriptor(object,name) {
+    for(let depth=0;depth<8&&object?.objectId;depth++) {
+      const p=properties(object,true)
+      const row=p.result.find(p=>typeof name==='string'?p.name===name: p.symbol&&same(p.symbol,name))
+      if(row)return row
+      object=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+    }
+    throw Error('IPC slice descriptor unavailable')
+  }
+  function checkSlice(frame,objectGroup) {
+    slices.entries++
+    try {
+      // Subarray reads constructor and @@species before creating a view.
+      // Inspect descriptors without running accessors. A self-restoring
+      // species constructor can retain bytes before Deserializer is entered.
+      const view=evaluate(frame,'concatenatedBuffer',objectGroup)
+      const p=properties(view,true),proto=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+      const ctorField=descriptor(view,'constructor')
+      if(!Object.hasOwn(ctorField,'value')||ctorField.get||ctorField.set)throw Error('constructor is observable')
+      const ctor=ctorField.value,isUint8=same(ctor,uint8Constructor),isBuffer=same(ctor,bufferConstructor)
+      if(!(isUint8&&same(proto,uint8Prototype))&&!(isBuffer&&same(proto,bufferPrototype)))throw Error('constructor or view prototype changed')
+      const species=descriptor(ctor,speciesSymbol),getter=isUint8?typedSpeciesGetter:bufferSpeciesGetter
+      if(Object.hasOwn(species,'value')||!same(species.get,getter)||(species.set&&species.set.type!=='undefined'))
+        throw Error('species lookup changed')
+      if(isBuffer&&(!same(prototype(fastBuffer),uint8Constructor)||!same(data(properties(fastBuffer).result,'prototype'),bufferPrototype)))
+        throw Error('FastBuffer constructor changed')
+      slices[isUint8?'uint8':'buffer']++;slices.checked++
+    }catch(e){slices.failures++;fail('IPC slice '+e.message)}
   }
   function pinnedFunction(fn,expected,line) {
     const p=properties(fn),loc=p.internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
@@ -195,7 +228,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   function decoderPause(params,kinds) {
     // Source and function-entry breakpoints may share a pause. Validate the
     // lookup before accepting the corresponding actual native entry.
-    for(const kind of ['construct','native:construct','header','value','native:readHeader','native:readValue','host'])if(kinds.includes(kind)) {
+    for(const kind of ['construct','native:construct','slice:remainder','header','value','native:readHeader','native:readValue','host'])if(kinds.includes(kind)) {
       if(kind==='construct') {
         if(decoding){fail('IPC decoder started before its previous result was delivered');decoderRelease()}
         const eventGroup=group+'-decoder-'+(++decoder.groupsCreated)
@@ -206,6 +239,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         requireRead(decoding.channel)
         decoder.started++
         decoding.prototype=constructorChain(frame,eventGroup)
+        checkSlice(frame,eventGroup)
       }else if(kind==='native:construct') {
         if(!decoding){decoder.unrelatedConstructorEntries++;continue}
         const frames=params.callFrames??[]
@@ -222,6 +256,11 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         constructorChain(frame,decoding.group)
         if(decoding.stage!=='construct'||++decoding.constructor!==1)throw Error('IPC native constructor entry is out of order')
         decoder.constructorEntries++
+      }else if(kind==='slice:remainder') {
+        if(!decoding)throw Error('IPC remainder slice lacks construction evidence')
+        const frame=decoderFrame(params,96,decoding.group)
+        if(!frame||!same(evaluate(frame,'channel',decoding.group),decoding.channel))throw Error('IPC remainder slice has another channel')
+        checkSlice(frame,decoding.group)
       }else if(kind==='header') {
         if(!decoding)throw Error('IPC decoder header lacks construction evidence')
         const frame=decoderFrame(params,101,decoding.group)
@@ -274,6 +313,26 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const literal=post('Runtime.evaluate',{expression:'({})',objectGroup:group,silent:true})
     if(literal.exceptionDetails)throw Error('IPC intrinsic object prototype unavailable')
     objectPrototype=prototype(literal.result)
+    const byteNamespace=post('Runtime.evaluate',{expression:'({Uint8Array,Symbol,buffer:process.getBuiltinModule("buffer")})',objectGroup:group,silent:true})
+    if(byteNamespace.exceptionDetails)throw Error('IPC slice namespace unavailable')
+    const byteFields=properties(byteNamespace.result).result
+    uint8Constructor=data(byteFields,'Uint8Array');uint8Prototype=data(properties(uint8Constructor).result,'prototype')
+    const nativeByteProperties=properties(uint8Constructor)
+    if(uint8Constructor.type!=='function'||nativeByteProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
+      throw Error('IPC byte constructor baseline is not an unbound native function')
+    speciesSymbol=data(properties(data(byteFields,'Symbol')).result,'species')
+    typedSpeciesGetter=descriptor(uint8Constructor,speciesSymbol).get
+    const getterProperties=properties(typedSpeciesGetter)
+    if(typedSpeciesGetter.type!=='function'||getterProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
+      throw Error('IPC species baseline is not an unbound native getter')
+    bufferConstructor=data(properties(data(byteFields,'buffer')).result,'Buffer')
+    bufferPrototype=data(properties(bufferConstructor).result,'prototype')
+    bufferSpeciesGetter=descriptor(bufferConstructor,speciesSymbol).get
+    pinnedFunction(bufferSpeciesGetter,bufferSource,301)
+    const fast=post('Runtime.callFunctionOn',{objectId:bufferSpeciesGetter.objectId,functionDeclaration:'function(){return this()}',objectGroup:group,silent:true})
+    if(fast.exceptionDetails)throw Error('IPC FastBuffer baseline unavailable')
+    fastBuffer=fast.result;pinnedFunction(fastBuffer,internalBufferSource,896)
+    if(!same(prototype(fastBuffer),uint8Constructor))throw Error('IPC FastBuffer baseline constructor changed')
     const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process',lineNumber,columnNumber:0})
     breakpointId=b.breakpointId
     if(!breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==lineNumber)
@@ -314,7 +373,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       const b=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn.objectId})
       breakpoints.set(b.breakpointId,'native:'+name)
     }
-    for(const [kind,line] of [['construct',92],['header',101],['value',102]]) {
+    for(const [kind,line] of [['construct',92],['slice:remainder',96],['header',101],['value',102]]) {
       const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process/serialization',lineNumber:line,columnNumber:0})
       breakpoints.set(b.breakpointId,kind)
       if(!b.breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==line)throw Error('IPC decoder location is not uniquely loaded')
@@ -392,6 +451,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       parsers:[...parsers.values()],failures,errors:[...errors],replayEligible:false,completeOwnership:false,
       decoder:{...decoder,pending:decoding!==null,initialNativeIntegrity:false,completeOwnership:false},
       reads:{...reads,pending:reading!==null,returnLocation:readReturn,completeOwnership:false},
+      slices:{...slices,completeOwnership:false},
       limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}),
     close() {
       if(closed)return

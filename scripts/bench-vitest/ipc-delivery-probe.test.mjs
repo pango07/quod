@@ -36,6 +36,7 @@ async function run(kind,enabled,serialization='advanced') {
 import v8 from 'node:v8';
 import {executionAsyncId,executionAsyncResource,createHook} from 'node:async_hooks';
 const enabled=${enabled},kind=${JSON.stringify(kind)};
+const fragmented=kind==='normal-fragmented';
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
 const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
 const byteCopyPreparations=[];
@@ -171,10 +172,18 @@ if(kind==='view-constructor-getter') {
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
+if(fragmented){const timer=setInterval(()=>{if(pipe.buffering){clearInterval(timer);process.send({kind:'fragment-ready'})}},1)}
 process.send({kind:'ready',initial});`
   const child=spawn(process.execPath,['--input-type=module','-e',source],
     {stdio:['ignore','pipe','pipe','ipc'],serialization})
   const messages=[],errors=[],writes=[]
+  let remainingBytes=null
+  function write(bytes,reject){
+    const request=new (process.binding('stream_wrap').WriteWrap)()
+    writes.push({bytes,request});request.oncomplete=status=>{if(status!==0)reject(Error('fixture IPC write failed: '+status))}
+    const status=ipcPipe(child).writeBuffer(request,bytes)
+    if(status!==0)reject(Error('fixture IPC write failed: '+status))
+  }
   child.stderr.on('data',chunk=>errors.push(chunk.toString()))
   const outcome=await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{child.kill();reject(Error('IPC delivery regression timed out'))},20000)
@@ -184,21 +193,21 @@ process.send({kind:'ready',initial});`
       if(message.kind==='ready') {
         const inputs=[1,2].map(value=>kind==='primitive'?value:{kind:'data',value,privatePath:'/private-ipc-delivery',
           ...(kind==='host-object'?{bytes:Buffer.from([value,value+1])}:{})})
-        const bytes=ipcFrames(inputs,serialization),request=new (process.binding('stream_wrap').WriteWrap)()
+        const bytes=ipcFrames(inputs,serialization)
         // Hold the bytes until child exit even if the native write is async.
-        writes.push({bytes,request});request.oncomplete=status=>{if(status!==0)reject(Error('fixture IPC write failed: '+status))}
-        const status=ipcPipe(child).writeBuffer(request,bytes)
-        if(status!==0)reject(Error('fixture IPC write failed: '+status))
+        if(kind==='normal-fragmented'){remainingBytes=bytes.subarray(3);write(bytes.subarray(0,3),reject)}
+        else write(bytes,reject)
       }
+      if(message.kind==='fragment-ready'){assert(remainingBytes);write(remainingBytes,reject);remainingBytes=null}
     })
     child.on('exit',(code,signal)=>{clearTimeout(timer);resolve({code,signal})})
   })
   assert.equal(outcome.code,0,errors.join('')||String(outcome.signal))
-  assert.deepEqual(messages.map(m=>m.kind),['ready','report'])
-  return {initial:messages[0].initial,...messages[1]}
+  assert.deepEqual(messages.map(m=>m.kind),kind==='normal-fragmented'?['ready','fragment-ready','report']:['ready','report'])
+  return {initial:messages[0].initial,...messages.at(-1)}
 }
 
-for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emit-precopy','advanced'],
+for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['normal-fragmented','advanced'],['emit-precopy','advanced'],
   ['prelistener','advanced'],['synthetic','advanced'],['primitive','advanced'],['closed','advanced'],
   ['callback-throw','advanced'],['decoder-copy','advanced'],['decoder-self-restore','advanced'],['decoder-getter','advanced'],
   ['decoder-forged','advanced'],['header-self-restore','advanced'],['generator-copy','advanced'],
@@ -245,9 +254,10 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
       assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve the byte-copy behavior')
       assert.equal(r.byteCopyPreparations.length,plain.byteCopyPreparations.length)
       assert.equal(r.byteCopyPreparations[0],0,'the first byte copy must precede preparation')
+      assert(r.report.errors.some(e=>e.startsWith('IPC slice ')))
     }
     assert(!JSON.stringify(r.report).includes('/private-ipc-delivery'))
-    if(['normal','emit-precopy','prelistener','protocol-getter','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
+    if(['normal','normal-fragmented','emit-precopy','prelistener','protocol-getter','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
       assert.equal(r.report.available,true,JSON.stringify(r.report))
       assert.equal(r.report.decoded,2);assert.equal(r.report.prepared,2);assert.equal(r.report.paired,2)
       assert.equal(r.report.pending,0);assert.equal(r.report.failures,0)
@@ -257,10 +267,13 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
       const count=serialization==='advanced'?2:0
       for(const key of ['started','constructorEntries','headerEntries','valueEntries','completed'])assert.equal(r.report.decoder[key],count)
       assert.equal(r.report.decoder.hostEntries,0);assert.deepEqual(r.report.decoder.failureFrames,[])
-      assert.equal(r.report.reads.entries,1);assert.equal(r.report.reads.completed,1)
+      assert.equal(r.report.reads.entries,kind==='normal-fragmented'?2:1);assert.equal(r.report.reads.completed,r.report.reads.entries)
       assert.equal(r.report.reads.delivered,2);assert.deepEqual(r.report.reads.failureFrames,[])
       assert.equal(r.report.reads.groupsCreated,r.report.reads.groupsReleased)
       assert.equal(r.report.reads.entries,r.report.reads.directEntries+r.report.reads.trampolineEntries)
+      assert.equal(r.report.slices.entries,count*2);assert.equal(r.report.slices.checked,count*2)
+      assert.equal(r.report.slices.failures,0)
+      if(kind==='normal-fragmented')assert.equal(r.report.slices.buffer,4)
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
       assert(r.copies.length>0)
