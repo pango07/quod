@@ -5,7 +5,9 @@ import {spawnSync} from 'node:child_process'
 function observe(expression,{enabled=true,buffer=false}={}) {
   const result=spawnSync(process.execPath,['--input-type=module','-e',`
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+import {createRequire} from 'node:module';
 import {createRecorder,patchFs} from ${JSON.stringify(new URL('./record.mjs',import.meta.url).href)};
+const require=createRequire(import.meta.url);
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'quod-realpath-record-'));
 fs.mkdirSync(root+'/target');fs.writeFileSync(root+'/target/file','same');
 fs.symlinkSync('target',root+'/link');
@@ -48,6 +50,16 @@ const resolved=fs.realpathSync.native(input,options);return {resolved,ordinary,o
   assert.equal(row.value.resolved,row.expected)
   assert.equal(row.value.observed,row.value.ordinary)
   assert.deepEqual(row.unobservable,['unsupported realpath options'])
+})
+test('ordinary data options preserve the operation without fallback',()=>{
+  const row=observe("fs.realpathSync.native(input,{encoding:'utf8'})")
+  assert.equal(row.value,row.expected);assert.deepEqual(row.unobservable,[])
+  assert.ok(row.keys.includes('rp:'+row.query))
+})
+test('Node module resolution retains its cache and resolution dependency',()=>{
+  const row=observe('require.resolve(input)')
+  assert.equal(row.value,row.expected);assert.deepEqual(row.unobservable,[])
+  assert.ok(row.keys.some(k=>k.startsWith('rp:')&&k.endsWith('/target/file')))
 })
 
 test('only a newly written main-process config bundle is an owned artifact',()=>{

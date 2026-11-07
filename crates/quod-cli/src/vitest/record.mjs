@@ -486,6 +486,32 @@ function isRead(flags) {
   return /[r+]/.test(String(flags))
 }
 
+const realpathDescriptors = Object.getOwnPropertyDescriptors
+const realpathPrototype = Object.getPrototypeOf
+const realpathOwnKeys = Reflect.ownKeys
+const realpathHasOwn = Object.hasOwn
+const realpathObjectPrototype = Object.prototype
+const realpathIsProxy = nodeUtil.types.isProxy
+const realpathIsMap = nodeUtil.types.isMap
+function simpleRealpathOptions(options) {
+  if (options == null || typeof options === 'string' || typeof options === 'function') return true
+  if (typeof options !== 'object' || realpathIsProxy(options)) return false
+  const prototype = realpathPrototype(options)
+  if (prototype !== realpathObjectPrototype && prototype !== null) return false
+  const descriptors = realpathDescriptors(options)
+  for (const key of realpathOwnKeys(descriptors)) {
+    const entry = descriptors[key]
+    if (!realpathHasOwn(entry, 'value')) return false
+    if (key === 'encoding' && (entry.value == null || typeof entry.value === 'string')) continue
+    // Node's own CommonJS loader passes its realpath cache as a data
+    // property. Preserve that existing operation and its old input keys;
+    // this is not authority to suppress any of its internal observations.
+    if (typeof key === 'symbol' && realpathIsMap(entry.value)) continue
+    return false
+  }
+  return true
+}
+
 // `sync: false` leaves node:fs's ESM exports to the caller's one
 // syncBuiltinESMExports (each call walks every loaded builtin's exports).
 export function patchFs(r, { sync = true } = {}) {
@@ -527,8 +553,7 @@ export function patchFs(r, { sync = true } = {}) {
   const realpath = (a) => {
     // An options object's getter can change cwd before Node resolves a
     // relative path. Leave its evaluation entirely to Node and run plain.
-    const options = a[1]
-    if (options != null && typeof options !== 'string' && typeof options !== 'function') {
+    if (!simpleRealpathOptions(a[1])) {
       r.unobs('unsupported realpath options')
     }
     r.add('e', a[0])
