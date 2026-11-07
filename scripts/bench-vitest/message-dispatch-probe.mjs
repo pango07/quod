@@ -15,7 +15,7 @@ export function observeMessageDispatch(post,{pendingLimit=32,onObserverMessage=n
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending message limit')
   const group='quod-message-dispatch-'+randomBytes(16).toString('hex')
   const breakpoints=new Map(),pending=[],wrapperPending=[],errors=[],failureCounts=new Map()
-  let receiver,observer,reflectNamespace,reflectApply,ownDescriptor,listenerApply,emittingSymbol,installed=false,closed=false,sequence=0
+  let receiver,observer,nativeEmit,reflectNamespace,reflectApply,ownDescriptor,listenerApply,emittingSymbol,installed=false,closed=false,sequence=0
   let dispatches=0,callbacks=0,paired=0,ignoredReceivers=0,groupsCreated=0,groupsReleased=0
   let wrapperEntries=0,wrapperForwarded=0,wrapperChecks=0,singleListenerChecks=0,arrayListenerChecks=0
   let source=null,wrapperSource=null
@@ -150,12 +150,15 @@ export function observeMessageDispatch(post,{pendingLimit=32,onObserverMessage=n
     // other function in node:events. Pin emit's actual function location too.
     if(source.sha256!==eventsSource||source.line!==455||source.column!==43)
       throw Error('process emit function differs from pinned Node')
+    nativeEmit=emit
     observer=listenerState().first
     listenerApply=inheritedData(observer,'apply')
     reflectApply=binding(emit,'ReflectApply')
     emittingSymbol=binding(emit,'kEmitting')
     if(reflectApply.type!=='function'||emittingSymbol.type!=='symbol')throw Error('Node dispatch invocation bindings unavailable')
-    if(wrapper) {
+    {
+      // Capture the invocation baseline even before Vitest installs its
+      // warning wrapper. A later handoff must compare with this early state.
       const d=post('Runtime.evaluate',{expression:'Object.getOwnPropertyDescriptor',objectGroup:group,silent:true})
       if(d.exceptionDetails||d.result?.type!=='function'||!d.result.objectId)throw Error('global descriptor builtin unavailable')
       ownDescriptor=d.result
@@ -174,6 +177,22 @@ export function observeMessageDispatch(post,{pendingLimit=32,onObserverMessage=n
     installed=true
   }catch(e){fail(e.message)}
   return {
+    captureCurrentWrapper() {
+      try {
+        if(!installed||closed||wrapperSource||dispatches||callbacks||pending.length||wrapperPending.length)
+          throw Error('warning wrapper handoff is not at the initial boundary')
+        const wrapper=inheritedData(receiver,'emit')
+        if(same(wrapper,nativeEmit))return true
+        const current=functionSource(wrapper)
+        if(current.sha256!==warningWrapperSource||current.line!==14||current.column!==24||!same(binding(wrapper,'emit'),nativeEmit))
+          throw Error('late warning wrapper differs from pinned Node forwarding')
+        // No observer or breakpoint is replaced. Earlier failures and the
+        // original native function baseline survive this additional guard.
+        const b=post('Debugger.setBreakpointOnFunctionCall',{objectId:wrapper.objectId,condition:'arguments[0] === "message"'})
+        breakpoints.set(b.breakpointId,'wrapper');wrapperSource=current
+        return true
+      }catch(e){fail(e.message);return false}
+    },
     ipcDeliveryCallback() {
       if(!installed||closed)throw Error('message observer unavailable for IPC registration')
       const callback=binding(observer,'prepareWorkerMessage')

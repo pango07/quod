@@ -13,6 +13,7 @@ import {validateNativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 import {testProgressReporter} from './test-progress-reporter.mjs'
 import {validateNativeScalarEvidence} from './native-scalar-evidence.mjs'
 import {validateIssuedCompilationSources} from './issued-compilation-sources.mjs'
+import startupOptions from './worker-startup-options.cjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -55,6 +56,7 @@ if(phase) {
       this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0',
         ...(boundaryProbe?{QUOD_NATIVE_CAPTURE_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON,
           QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT:nativeTransport,QUOD_WORKER_SCALAR_OBSERVATION:scalarObservation}:{})}
+      if(boundaryProbe)this.execArgv=startupOptions.workerStartupArguments(this.execArgv,this.env)
       return Reflect.apply(original,this,args)
     }
   }
@@ -239,6 +241,12 @@ if(phase) {
       for(const r of reports) {
         const a=byKey.get(key(r));assert(a,'every combined worker must have a previous observation')
         for(const x of [a,r]) {
+          const startup=x.boundary.startup
+          assert(startup?.available&&startup.firstRequire&&startup.preloadParent&&!startup.closed,
+            'early startup handoff must remain available: '+JSON.stringify(startup))
+          assert.equal(startup.priorCachedModules,0);assert.equal(startup.handoffs,1);assert.equal(startup.prematureMessages,0)
+          assert.deepEqual(startup.failures,[]);assert.equal(startup.completeStartupIntegrity,false)
+          assert.equal(startup.completeOwnership,false);assert.equal(startup.replayEligible,false)
           assert(!x.unknown.length&&!x.metadata.errors.length&&!x.metadata.gaps.length&&!x.metadata.overflow)
           assert(!x.transport.errors.length&&!x.transport.overflow&&x.transport.pending===0&&x.transport.unsettled===0)
           assert.equal(x.transport.delivery,'consumer')

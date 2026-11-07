@@ -516,6 +516,11 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     messageDispatch() {
       return messageDispatch?.report()??{available:false,installed:false,replayEligible:false,completeOwnership:false}
     },
+    captureMessageWrapper() {
+      if(closed||!messageDispatch)throw Error('message observer unavailable for wrapper handoff')
+      messageDispatch.captureCurrentWrapper()
+      return messageDispatch.report()
+    },
     captureIpcDelivery(options={}) {
       if(closed||ipcDelivery||!messageDispatch)throw Error('IPC delivery already captured or message observer unavailable')
       ipcDelivery=observeIpcDelivery(post,{...options,callback:messageDispatch.ipcDeliveryCallback()})

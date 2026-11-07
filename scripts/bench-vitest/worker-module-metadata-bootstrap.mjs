@@ -20,11 +20,8 @@ const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect
 let project=null
 const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined&&scalarObservation==='accessor',
-  nativeEntries:combined,inspectorTiming:combined,ordinaryOwners:combined,
-  nativeTransport:combined?(process.env.QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT??'protocol'):'protocol',
-  onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
-    JSON.stringify({project,files,checkpoint})+'\n'):null})
+const startup=combined?createRequire(import.meta.url)('./worker-boundary-preload.cjs'):null
+const registry=startup?.registry??inspectPromiseObservers({proxyAccess:true,hookAccess:true})
 const require=createRequire(path.join(process.cwd(),'package.json'))
 const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
@@ -70,18 +67,18 @@ function observeWorkerMessage(message) {
   if(combined)transport.received(message)
   else prepareWorkerMessage(message)
 }
-process.prependListener('message',observeWorkerMessage)
 if(combined) {
-  registry.captureMessageObserver()
-  registry.captureIpcDelivery()
+  startup.handoff({transport,prepare:prepareWorkerMessage,
+    onCheckpoint:checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
+      JSON.stringify({project,files,checkpoint})+'\n')})
   registry.captureTransportContinuation(pathToFileURL(entry).href)
-}
+}else process.prependListener('message',observeWorkerMessage)
 process.send=function(...args) {
   const message=args[0]
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),ipcDelivery:registry.ipcDelivery(),transportContinuation:registry.transportContinuation(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
+      boundary:combined?{scalarObservation,startup:startup.report(),messageDispatch:registry.messageDispatch(),ipcDelivery:registry.ipcDelivery(),transportContinuation:registry.transportContinuation(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity(),timing:registry.inspectorTiming()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }
