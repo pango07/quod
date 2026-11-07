@@ -72,7 +72,7 @@ export function canonicalManagedJSON(value) {
  * Result metadata retains esbuild's original paths for artifact inspection;
  * identity is the canonical, hashable preparation record.
  */
-export function createManagedCompiler({project: projectArg, adapterRoot = here}) {
+export function createManagedCompiler({project: projectArg, adapterRoot = here, sourceTreeCache = true}) {
   const project = fs.realpathSync(path.resolve(projectArg))
   const root = fs.realpathSync(path.resolve(adapterRoot))
   const fromProject = createRequire(path.join(project, 'package.json'))
@@ -83,11 +83,43 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
   const vitestRoot = path.dirname(fromProject.resolve('vitest/package.json'))
   const moduleName = file => inside(project, file) ? '/project/' + slash(path.relative(project, file))
     : inside(root, file) ? '/quod-adapter/' + slash(path.relative(root, file)) : '/external/' + slash(file)
-  const readTree = (file, contents) => {
+  // Only source syntax trees are memoized, within this compiler instance.
+  // Every caller still reads and hashes the current full source bytes, performs
+  // all import resolutions and glob discovery, and parses the final bundle.
+  // A timestamp, inode, previous closure or cached module is never authority.
+  const trees = new Map()
+  let buildSequence = 0
+  const treeCache = {enabled: sourceTreeCache === true, hits: 0, crossBuildHits: 0, misses: 0, evictions: 0,
+    retainedSourceBytes: 0, finalBundleParses: 0, limitEntries: 128, limitSourceBytes: 8 * 1024 * 1024,
+    maxEntrySourceBytes: 512 * 1024}
+  assert(typeof sourceTreeCache === 'boolean', 'explicit boolean source-tree cache setting required')
+  const readTree = (file, contents, buildId) => {
+    const bytes = Buffer.byteLength(contents, 'utf8')
+    const finalBundle = file === 'managed-output.mjs'
+    const cacheable = treeCache.enabled && !finalBundle && bytes <= treeCache.maxEntrySourceBytes
+    const key = cacheable ? file + '\0' + sha(contents) : null
+    if (key && trees.has(key)) {
+      const record = trees.get(key)
+      // LRU ordering affects memory use only. Cached ASTs are never edited.
+      trees.delete(key); trees.set(key, record); treeCache.hits++
+      if (record.lastBuild !== buildId) treeCache.crossBuildHits++
+      record.lastBuild = buildId
+      return record.tree
+    }
+    if (finalBundle) treeCache.finalBundleParses++
+    else treeCache.misses++
     const tree = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true,
       /\.tsx$/.test(file) ? ts.ScriptKind.TSX : /\.jsx$/.test(file) ? ts.ScriptKind.JSX
         : /\.[cm]?ts$/.test(file) ? ts.ScriptKind.TS : ts.ScriptKind.JS)
     assert.equal(tree.parseDiagnostics.length, 0, 'module parse failed: ' + moduleName(file))
+    if (key) {
+      while (trees.size >= treeCache.limitEntries || treeCache.retainedSourceBytes + bytes > treeCache.limitSourceBytes) {
+        const oldest = trees.keys().next().value
+        treeCache.retainedSourceBytes -= trees.get(oldest).bytes
+        trees.delete(oldest); treeCache.evictions++
+      }
+      trees.set(key, {tree, bytes, lastBuild: buildId}); treeCache.retainedSourceBytes += bytes
+    }
     return tree
   }
   const unparen = node => {
@@ -115,6 +147,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
 
   return async function compile(entry, options, testFileArg) {
     assert(entries.has(entry), 'unreviewed managed entry adapter: ' + entry)
+    const buildId = ++buildSequence
     const entryFile = fs.realpathSync(path.join(root, entry))
     const testFile = testFileArg ? fs.realpathSync(testFileArg) : null
     assert(!testFile || (inside(project, testFile) && !inside(root, testFile)), 'test entry must be inside project')
@@ -206,7 +239,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
           // Inspect original source before esbuild can remove type-only or
           // unused imports, and before a reviewed framework adapter rewrites
           // anything. A symlink/package alias to an adapter is private too.
-          const original = readTree(file, contents), originalImports = []
+          const original = readTree(file, contents, buildId), originalImports = []
           function inspectOriginal(node) {
             let specifier, kind
             if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
@@ -270,7 +303,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
             contents = contents.replace(probe, 'isPresent.Intl = false; // Quod managed: Intl unsupported')
             adapters.push({source, sourceSha256, policy: 'Disable optional fake-timer Intl integration; test Intl remains denied', adaptedSha256: sha(contents)})
           }
-          const tree = readTree(file, contents), edits = [], identifiers = new Set()
+          const tree = readTree(file, contents, buildId), edits = [], identifiers = new Set()
           function collect(node) {
             if (ts.isIdentifier(node)) identifiers.add(node.text)
             ts.forEachChild(node, collect)
@@ -368,7 +401,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
     const bundle = compiled.outputFiles[0].text
     const imports = Object.values(compiled.metafile.outputs).flatMap(output => output.imports)
     assert(imports.every(item => item.external && item.path === 'node:async_hooks'), 'bundle output is not closed')
-    const outputTree = readTree('managed-output.mjs', bundle), externalImports = []
+    const outputTree = readTree('managed-output.mjs', bundle, buildId), externalImports = []
     function inspect(node) {
       assert(!importMeta(node), 'ambient module metadata remains in final bundle')
       // A copied native require can avoid the direct-call shape (for
@@ -407,6 +440,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
       sources, resolutions, adapters, globs, transforms,
     }
     return {bundle, metadata: compiled.metafile, seconds: (performance.now() - started) / 1000, sha256,
+      sourceTreeCache: {...treeCache, retainedEntries: trees.size},
       globs, adapters, identity, identitySha256: sha(canonicalManagedJSON(identity)),
       closure: {finalBundleParsed: true, remainingDynamicImports: 0, remainingDynamicRequires: 0,
         externalImports, privateAdapterImports: 'reviewed entry only',
