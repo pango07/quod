@@ -19,7 +19,8 @@ export function createStatConstructorProbe() {
   function post(method,params={}) {
     let done=false,error,result
     session.post(method,params,(e,r)=>{done=true;error=e;result=r})
-    if(!done||error)throw Error('constructor inspector request failed: '+method)
+    if(!done||error)throw Error('constructor inspector request failed: '+method+
+      (error?': '+error.message:': asynchronous response'))
     return result
   }
   function evaluate(expression) {
@@ -97,9 +98,14 @@ export function createStatConstructorProbe() {
     for(const kind of ['Stats','BigIntStats']) {
       const start=text.indexOf('function '+kind+'('),end=text.indexOf('\n}',start)
       if(start<0||end<start)throw Error('constructor source extent unavailable')
+      const body=text.indexOf('{\n',start)+2
+      if(body<start||body>=end)throw Error('constructor body unavailable')
       const line=offset=>text.slice(0,offset).split('\n').length-1
-      const locations=post('Debugger.getPossibleBreakpoints',{start:{scriptId,lineNumber:line(start),columnNumber:0},
-        end:{scriptId,lineNumber:line(end)+2,columnNumber:0},restrictToFunction:true}).locations
+      // A declaration header is outside the function's executable range.
+      // Query only the source-pinned constructor body (which has no nested
+      // function) and require its unique return breakpoint explicitly.
+      const locations=post('Debugger.getPossibleBreakpoints',{start:{scriptId,lineNumber:line(body),columnNumber:0},
+        end:{scriptId,lineNumber:line(end)+2,columnNumber:0}}).locations
       const returns=locations.filter(location=>location.type==='return')
       const entries=locations.filter(location=>location.type!=='return')
       if(returns.length!==1||!entries.length)throw Error('constructor entry/return points unavailable: '+kind)
