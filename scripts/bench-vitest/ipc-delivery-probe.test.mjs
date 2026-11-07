@@ -42,6 +42,7 @@ const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new Wea
 const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
 const byteCopyPreparations=[];
 let preparations=0,gets=0,asyncHook=null;
+let earlyBufferList=null,earlyBufferListWasEmpty=false;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
 const nativeBufferKey=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
 const onread=pipe.onread;
@@ -57,6 +58,7 @@ function observer(message){
   values.push(typeof message==='object'?message.value:message);order.push('consumer');
   deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead()});
   if(values.length===(kind==='synthetic'?3:2)) {
+    if(kind==='early-list-alias')copyWire(earlyBufferList[0]);
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     asyncHook?.disable();p.close();process.removeListener('message',observer);
     if(kind==='onread-shadow-getter')delete pipe.onread;
@@ -66,12 +68,16 @@ function observer(message){
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
       rawCopiedValues,wireCopyBytes:wireCopies.reduce((n,b)=>n+b.byteLength,0),
       byteCopyPreparations,
+      earlyBufferListWasEmpty,
       copiedPayloadContainsPath:wireCopies.some(bytes=>bytes.includes(Buffer.from('/private-ipc-delivery'))),
       compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
 process.prependListener('message',observer);p.captureMessageObserver();
 const initial=enabled?p.captureIpcDelivery():null;
+if(kind==='early-list-alias'){
+  earlyBufferList=pipe[nativeBufferKey];earlyBufferListWasEmpty=earlyBufferList.length===0;
+}
 if(['onread-copy','onread-self-restore','async-resource-copy'].includes(kind)) {
   const replacement=function(...args){
     if(kind!=='onread-copy')pipe.onread=onread;
@@ -288,7 +294,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
   ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
   ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced'],
-  ['retained-copy','advanced'],['retained-shadow','advanced']]) {
+  ['retained-copy','advanced'],['retained-shadow','advanced'],['early-list-alias','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -319,6 +325,15 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
+    if(kind==='early-list-alias') {
+      assert.equal(r.earlyBufferListWasEmpty,true);assert.equal(plain.earlyBufferListWasEmpty,true)
+      assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
+      assert.equal(r.copiedPayloadContainsPath,true);assert.equal(plain.copiedPayloadContainsPath,true)
+      assert.deepEqual(r.byteCopyPreparations,[2]);assert.deepEqual(plain.byteCopyPreparations,[2])
+      assert.equal(r.gets,0,'retaining an ordinary array must not require a getter or parser replacement')
+      assert.equal(r.report.boundaries.retainedEntries,0);assert.equal(r.report.boundaries.retainedReturns,0)
+      assert.equal(r.report.boundaries.checked,2,'a complete packet leaves both read boundaries empty')
+    }
     if(kind.startsWith('retained-')) {
       assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
       assert.equal(r.copiedPayloadContainsPath,true);assert.equal(plain.copiedPayloadContainsPath,true)
