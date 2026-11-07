@@ -103,7 +103,9 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/native-vm-evidence
-            ${{ runner.temp }}/native-vm-image
+            ${{ runner.temp }}/native-vm-image/*.json
+            ${{ runner.temp }}/native-vm-image/kernel
+            ${{ runner.temp }}/native-vm-image/initramfs.cpio.gz
             ${{ runner.temp }}/native-vm-audit.json
 
   benchmark-managed-matrix:

@@ -41,6 +41,79 @@ def run(argv, *, cwd=None, data=None):
                           stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TZ": "UTC"})
 
 
+def resolve_guest_path(root, guest):
+    """Resolve each hop inside the guest; never follow a guest absolute link on
+    the host. The root itself is trusted, while all components are inspected by
+    lstat before use. POSIX-like parent traversal must remain inside that root.
+    """
+    if not guest.startswith("/"):
+        raise RuntimeError("Guest resolution must start at an absolute path")
+    pending, resolved, hops = guest.split("/"), [], 0
+    while pending:
+        part = pending.pop(0)
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not resolved:
+                raise RuntimeError("Guest symlink escapes the root")
+            resolved.pop()
+            continue
+        candidate = root.joinpath(*resolved, part)
+        try:
+            info = candidate.lstat()
+        except OSError as exc:
+            raise RuntimeError("Missing guest symlink target: " + guest) from exc
+        if stat.S_ISLNK(info.st_mode):
+            hops += 1
+            if hops > 40:
+                raise RuntimeError("Guest symlink cycle or hop limit")
+            target = os.readlink(candidate)
+            if target.startswith("/"):
+                resolved = []
+            pending = target.split("/") + pending
+        else:
+            if pending and not stat.S_ISDIR(info.st_mode):
+                raise RuntimeError("Guest symlink crosses a non-directory")
+            resolved.append(part)
+    return root.joinpath(*resolved)
+
+
+def remote_symlink_fixtures(out):
+    """Cheap actual-filesystem checks executed only by the GitHub builder."""
+    root = out / "symlink-fixtures"
+    for directory in ["usr/bin", "usr/lib", "etc/alternatives"]:
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    (root / "usr/bin/mawk").write_bytes(b"fixture target\n")
+    links = {"usr/bin/awk": "/etc/alternatives/awk", "etc/alternatives/awk": "/usr/bin/mawk",
+             "usr/bin/relative": "../lib/tool", "usr/lib/tool": "../bin/mawk",
+             "parent": "/usr/../usr/bin/mawk", "dangling": "/missing/target",
+             "cycle-a": "cycle-b", "cycle-b": "cycle-a", "escape": "../outside"}
+    for name, target in links.items():
+        (root / name).symlink_to(target)
+    rows = []
+    for name, path, accepted in [("absolute-through-absolute", "/usr/bin/awk", True),
+                                  ("relative-chain", "/usr/bin/relative", True),
+                                  ("legitimate-parent", "/parent", True),
+                                  ("dangling-rejected", "/dangling", False),
+                                  ("cycle-rejected", "/cycle-a", False),
+                                  ("root-escape-rejected", "/escape", False)]:
+        result = None
+        try:
+            result = resolve_guest_path(root, path)
+        except RuntimeError:
+            if accepted:
+                raise
+        if accepted:
+            if result != root / "usr/bin/mawk":
+                raise RuntimeError("Guest symlink acceptance fixture resolved incorrectly: " + name)
+        elif result is not None:
+            raise RuntimeError("Guest symlink rejection fixture unexpectedly accepted: " + name)
+        rows.append({"name": name, "expected": "accepted" if accepted else "rejected", "passed": True})
+    shutil.rmtree(root)
+    (out / "symlink-fixtures.json").write_bytes(canonical({"schema": "quod-native-vm-symlink-fixtures-v1", "checks": rows}) + b"\n")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("project", type=Path)
@@ -72,6 +145,7 @@ def main():
     if not qemu.is_file():
         raise SystemExit("qemu-system-x86_64 is required")
     out.mkdir(parents=True)
+    symlink_checks = remote_symlink_fixtures(out)
     stage = out / "rootfs"
     stage.mkdir()
     for alias, target in [("bin", "usr/bin"), ("sbin", "usr/sbin"), ("lib", "usr/lib"), ("lib64", "usr/lib64")]:
@@ -251,9 +325,7 @@ def main():
         info = path.lstat()
         if path.is_symlink():
             target = os.readlink(path)
-            resolved = (path.parent / target).resolve() if not target.startswith("/") else (stage / target.lstrip("/")).resolve()
-            if not resolved.is_relative_to(stage.resolve()) or not resolved.exists():
-                raise RuntimeError(f"Escaping or dangling image symlink: {rel} -> {target}")
+            resolve_guest_path(stage, "/" + rel)
             row = {"path": rel, "type": "symlink", "target": target, "mode": 0o777}
         elif path.is_dir():
             row = {"path": rel, "type": "directory", "mode": stat.S_IMODE(info.st_mode)}
@@ -309,6 +381,7 @@ def main():
         raise RuntimeError("The explicit hashed SeaBIOS image is required")
     metadata = {"schema": SCHEMA, "contract": guest_policy["contract"], "source": SOURCE,
                 "rootMetadata": {"mode": 0o755, "uid": 0, "gid": 0, "mtime": EPOCH},
+                "symlinkChecks": symlink_checks,
                 "sourceInventory": source_rows, "guestPolicy": guest_policy, "inventory": inventory,
                 "inventorySha256": hashlib.sha256(canonical(inventory)).hexdigest(),
                 "kernel": {"origin": str(kernel), "sha256": digest(out / "kernel"), "bytes": (out / "kernel").stat().st_size},

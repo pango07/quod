@@ -18,6 +18,8 @@ NAMES = {"uid-gid-1000", "uart-read-denied", "uart-write-denied", "trusted-init-
          "trusted-policy-read-denied", "pid1-memory-read-denied", "pid1-fd-read-denied", "pid1-kill-denied",
          "pid1-ptrace-denied", "mount-denied", "user-namespace-denied", "source-write-denied", "no-host-mount",
          "owned-loopback-real", "external-network-absent"}
+SYMLINK_CHECKS = {"absolute-through-absolute": "accepted", "relative-chain": "accepted", "legitimate-parent": "accepted",
+                  "dangling-rejected": "rejected", "cycle-rejected": "rejected", "root-escape-rejected": "rejected"}
 
 
 def canonical(value):
@@ -45,6 +47,37 @@ def load(path):
 
 def decode(value):
     return base64.b64decode(value, validate=True)
+
+
+def audit_symlink_graph(entries):
+    """Resolve the archived graph as data. Host filesystem resolution is never
+    used for a guest target, including at subsequent absolute symlink hops.
+    """
+    for origin, original in entries.items():
+        if original["type"] != "symlink":
+            continue
+        todo, parents, hops = origin.split("/"), [], 0
+        while todo:
+            piece = todo.pop(0)
+            if piece in {"", "."}:
+                continue
+            if piece == "..":
+                require(parents, "Archived symlink escapes root: " + origin)
+                parents.pop()
+                continue
+            key = "/".join(parents + [piece])
+            require(key in entries, "Archived symlink target missing: " + origin)
+            row = entries[key]
+            if row["type"] == "symlink":
+                hops += 1
+                require(hops <= 40, "Archived symlink cycle/hop limit: " + origin)
+                target = row["target"]
+                if target.startswith("/"):
+                    parents = []
+                todo = target.split("/") + todo
+            else:
+                require(not todo or row["type"] == "directory", "Archived symlink crosses a non-directory: " + origin)
+                parents.append(piece)
 
 
 def audit_archive(path, inventory):
@@ -119,6 +152,7 @@ def audit_archive(path, inventory):
             require(row["target"] == expected_row["target"], f"Inventory symlink mismatch: {name}")
     require(expected["init"]["mode"] == 0o700 and expected["trusted"]["mode"] == 0o700 and
             expected["trusted/policy.json"]["mode"] == 0o600, "Trusted image files are not private")
+    audit_symlink_graph(expected)
     return {"entries": len(expected), "storedDataBytes": total}
 
 
@@ -141,6 +175,11 @@ def main():
             require(sha(HERE / name) == metadata[field], f"Frozen source differs: {name}")
         require(hashlib.sha256(canonical(metadata["inventory"])).hexdigest() == metadata["inventorySha256"], "Inventory hash differs")
         require(metadata["rootMetadata"] == {"mode": 0o755, "uid": 0, "gid": 0, "mtime": 1700000000}, "Wrong declared image-root metadata")
+        symlinks = load(image / "symlink-fixtures.json")
+        checks = symlinks["checks"]
+        require(symlinks["schema"] == "quod-native-vm-symlink-fixtures-v1" and checks == metadata["symlinkChecks"] and
+                len(checks) == len(SYMLINK_CHECKS) and {r["name"]: r["expected"] for r in checks} == SYMLINK_CHECKS and
+                all(r["passed"] is True for r in checks), "Remote guest symlink resolution fixtures missing/failed")
         require(hashlib.sha256(canonical(metadata["sourceInventory"])).hexdigest() == metadata["guestPolicy"]["sourceInventorySha256"],
                 "Tracked source inventory hash differs")
         report["archive"] = audit_archive(image / "initramfs.cpio.gz", metadata["inventory"])
