@@ -2133,3 +2133,61 @@ Action main/post seconds free would leave 1,497 seconds, still 566 over
 target. Tests account for 1,197 seconds, with no Vitest replays. This is a
 cost ceiling from existing measurements, not a new performance result:
 safe test reuse remains the work capable of closing most of the gap.
+
+## IPC decoder call-path guard
+
+`62d1855` checks the pinned advanced decoder before accepting a decoded
+message: method lookup must find the captured native `readHeader` and
+`readValue`, each native entry must occur exactly once from the pinned
+parser, and that parser must have the direct Node IPC caller. Host-object
+callbacks stay rejected. A replacement that restores itself before calling
+the native method, a getter returning a replacement, a forged result and a
+generator wrapper all leave persistent failures. Cleanup releases the
+additional decoder handles.
+
+The [first regression gate](https://github.com/pango07/quod/actions/runs/42315125218)
+failed three ordering assertions. Two independent `child.send` calls could
+arrive in different read batches in the plain and observed children.
+`33deec6` sends both protocol frames in one native pipe write and records
+the read-callback IDs, retaining the exact ordering comparison. `dca72e1`
+also requires both copies in the same read callback and both consumers
+after that callback. Its [focused gate](https://github.com/pango07/quod/actions/runs/42316334749)
+passes all 17 IPC regressions in 11.665 seconds. This gate permits quick
+iterations; the full worker-boundary gate retains the same regressions.
+
+The [full-workload job](https://github.com/pango07/quod/actions/runs/42315816471/job/128228015979)
+passes all 424 preflight checks and all three workload phases. The workflow
+as a whole is red because its separate change-detection job interpreted the
+dispatch's short SHA as a branch or tag. The benchmark job checked out the
+correct full commit and passed; the focused follow-up used a full SHA.
+
+| Phase | Seconds | File/project instances | Test states |
+| --- | ---: | ---: | ---: |
+| Baseline | 93.215 | 120 | 4,131 |
+| Observed before metadata change | 137.003 | 120 | 4,131 |
+| Observed after metadata change | 135.421 | 120 | 4,131 |
+
+Independent comparison of raw per-test names and states matches the
+baseline in both observed phases: 4,130 passed and one skipped, with the
+established fingerprint after 39 content-preserving mtime changes.
+Observed durations are 1.470x and 1.453x baseline, describing tracing cost
+rather than product savings. The runner image is
+`ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0 and Vitest 5.0.0.
+
+All 1,797 before-change and 1,791 after-change messages have exactly one
+header entry, value entry, preparation and paired callback. There are no
+decoder failures, host callbacks, unrelated native entries or pending
+messages. All 3,588 decoder groups and 3,588 IPC groups are released, as
+are 10,764 dispatch and 5,280 transport groups. Each observed phase still
+accounts for all 2,581 scalar reads, with zero seed reads or transport
+failures. Evaluator code sequences agree in all 120 workers; complete
+compilation and RPC sequences still differ in all workers. Exact-source
+accounting retains 60,109 and 59,947 unmatched anonymous events.
+
+The [evidence record](worker-message-dispatch.json) retains counters,
+source pins, log digests and the independently verified artifact digest.
+Raw-byte aliases, constructors, initial native integrity, pre-installation
+activity, complete worker inputs and parent effects remain unproven.
+This guard does not establish complete decoder ownership or enable
+production replay. There are zero product hits and lineage audits in this
+diagnostic; the full-window savings gap remains unchanged.
