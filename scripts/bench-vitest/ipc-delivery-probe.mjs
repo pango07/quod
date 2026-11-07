@@ -7,6 +7,7 @@ import {createHash,randomBytes} from 'node:crypto'
 const childSource='0c2e2cc568bb1651aec25c8a9c7178380dfde9b4ac772b02c6286536ee4986b1'
 const parserSource='59f0124b35fa9127200c10c5aa206b60ceaf0951d11947ce3e9a4afb1844f4f2'
 const v8Source='ed24392fbc14a67d065dedb839b975719c262f03a3b2bcf2c6aeb278a05e700d'
+const asyncSource='08a5d05e584c48a6f51edd61e1e6cb117906d763e521e4b8dc2c7227462bbdca'
 const lineNumber=650
 export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending IPC limit')
@@ -15,7 +16,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const breakpoints=new Map(),nativeMethods=new Map()
   const decoder={started:0,constructorEntries:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
-  const reads={entries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
+  const reads={entries:0,directEntries:0,trampolineEntries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   let reading=null,readReturn=null
   let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
@@ -127,12 +128,27 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(!same(evaluate(frame,'target',eventGroup),receiver)){reads.ignoredReceivers++;readRelease();return}
       reads.entries++
       reading.channel=evaluate(frame,'channel',eventGroup)
-      if(params.callFrames.length!==1)throw Error('IPC read callback has an unexpected caller')
       if(!same(frame.this,reading.channel))throw Error('IPC read callback has another receiver')
       const args=properties(evaluate(frame,'arguments',eventGroup)).result
       if(data(args,'length').value!==1)throw Error('IPC read callback has unexpected arguments')
-      const onread=data(properties(reading.channel).result,'onread')
-      pinnedFunction(onread,childSource,636)
+      // StreamBase dispatches its native internal callback slot. A public
+      // onread getter can shadow the JS accessor without changing that slot.
+      // Validate the executing frame, not a later public property lookup.
+      if(frame.functionLocation?.scriptId!==frame.location.scriptId||frame.functionLocation?.lineNumber!==636)
+        throw Error('IPC read callback differs from pinned Node')
+      if(params.callFrames.length===1)reads.directEntries++
+      else {
+        const parent=params.callFrames[1]
+        if(params.callFrames.length!==2||parent.location.lineNumber!==129)throw Error('IPC read callback has an unexpected caller')
+        source(parent.location.scriptId,asyncSource)
+        pinnedFunction(evaluate(parent,'cb',eventGroup),childSource,636)
+        if(!same(parent.this,reading.channel)||!same(evaluate(parent,'resource',eventGroup),reading.channel))
+          throw Error('IPC async callback has another resource')
+        const forwarded=properties(evaluate(parent,'args',eventGroup)).result
+        if(data(forwarded,'length').value!==1||!same(data(forwarded,'0'),data(args,'0')))
+          throw Error('IPC async callback arguments differ')
+        reads.trampolineEntries++
+      }
       reading.checked=true
     }else {
       if(!reading)return

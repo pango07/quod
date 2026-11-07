@@ -270,6 +270,7 @@ if(phase) {
           assert.equal(ipc.reads.pending,false);assert.equal(ipc.reads.completeOwnership,false)
           assert.deepEqual(ipc.reads.failureFrames,[]);assert.equal(ipc.reads.ignoredReceivers,0)
           assert(ipc.reads.entries>0);assert.equal(ipc.reads.entries,ipc.reads.completed)
+          assert.equal(ipc.reads.entries,ipc.reads.directEntries+ipc.reads.trampolineEntries)
           assert.equal(ipc.reads.delivered,ipc.decoded)
           assert.equal(ipc.reads.groupsCreated,ipc.reads.groupsReleased)
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
