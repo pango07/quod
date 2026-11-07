@@ -270,6 +270,73 @@ struct Ledger {
     /// A full replay of this ledger as vitest printed and wrote it.
     #[serde(default)]
     render: Option<Render>,
+    /// Recording admission is only an economic hint. It never changes any
+    /// input, witness, quarantine or replay decision.
+    #[serde(default)]
+    recording_admission: RecordingAdmission,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct RecordingAdmission {
+    shared: String,
+    misses: u32,
+    skipped: u32,
+}
+
+impl RecordingAdmission {
+    fn skip(&self, shared: &str, eligible: bool) -> bool {
+        eligible
+            && !shared.is_empty()
+            && !self.shared.is_empty()
+            && shared != self.shared
+            && self.misses >= 2
+            && self.skipped < 7
+    }
+
+    fn observe(&mut self, shared: String, unstable: bool, skipped: bool) {
+        self.shared = shared;
+        self.misses = if unstable {
+            self.misses.saturating_add(1)
+        } else {
+            0
+        };
+        self.skipped = if skipped {
+            self.skipped.saturating_add(1)
+        } else {
+            0
+        };
+    }
+}
+
+/// A performance hint, deliberately separate from the ledger's proof states.
+/// Include key names so changing the dependency set cannot look stable.
+fn shared_fingerprint(ledger: &Ledger, mut state: impl FnMut(u32) -> Option<String>) -> String {
+    if ledger.global.is_empty() {
+        return String::new();
+    }
+    let mut inputs = Vec::new();
+    for id in &ledger.global {
+        let (Some(key), Some(value)) = (ledger.keys.get(*id as usize), state(*id)) else {
+            return String::new();
+        };
+        inputs.push((key, value));
+    }
+    inputs.sort();
+    let mut h = blake3::Hasher::new();
+    for (key, value) in inputs {
+        h.update(&(key.len() as u64).to_le_bytes());
+        h.update(key.as_bytes());
+        h.update(&(value.len() as u64).to_le_bytes());
+        h.update(value.as_bytes());
+    }
+    h.finalize().to_hex().to_string()
+}
+
+fn save_ledger(path: &Path, ledger: &Ledger) -> Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_vec(ledger)?)?;
+    fs::rename(tmp, path)?;
+    Ok(())
 }
 
 fn compatible_ledger(bytes: &[u8], code: &str) -> Option<Ledger> {
@@ -577,7 +644,7 @@ struct Ran {
     denied: bool,
 }
 
-pub fn cli(a: VitestArgs) -> Result<u8> {
+pub fn cli(mut a: VitestArgs) -> Result<u8> {
     let t0 = Instant::now();
     let root = std::env::current_dir()?;
     let dir = match &a.dir {
@@ -701,6 +768,36 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         && !ledger.files.is_empty()
         && ledger.args == keyed_args(&a.args)
         && ledger.global.iter().all(|k| !changed.contains(k));
+    let adaptive_recording =
+        std::env::var("QUOD_VITEST_RECORDING").is_ok_and(|v| v == "adaptive");
+    // Back off only when the existing selector already requires EVERY file
+    // to execute. Full/explicit recording and pending E1 audits take priority.
+    // A skipped recording supplies no witness and updates no proof state.
+    let admission_eligible = !a.no_record
+        && !full
+        && a.expect_report.is_none()
+        && matches!(a.audits.as_str(), "auto" | "0")
+        && !global_ok
+        && !ledger.files.is_empty()
+        && ledger.args == keyed_args(&a.args)
+        && ledger.files.values().all(|r| r.lineage.is_none());
+    let shared_now = if adaptive_recording {
+        shared_fingerprint(&ledger, |id| now.get(&id).map(|s| s.0.clone()))
+    } else {
+        String::new()
+    };
+    let unstable_shared = admission_eligible
+        && !shared_now.is_empty()
+        && !ledger.recording_admission.shared.is_empty()
+        && shared_now != ledger.recording_admission.shared;
+    let adaptive_plain = adaptive_recording
+        && ledger
+            .recording_admission
+            .skip(&shared_now, admission_eligible);
+    if adaptive_plain {
+        a.no_record = true;
+        eprintln!("quod vitest: shared inputs keep changing; every test runs plain, recording retries after at most seven skipped recordings");
+    }
     let mut replay: BTreeMap<String, String> = BTreeMap::new();
     let mut affected: Vec<String> = Vec::new();
     // Files whose only changed inputs are source files they reached as
@@ -1253,6 +1350,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .collect();
     let replayed_ids: Vec<&String> = out.replayed.iter().collect();
     if a.no_record {
+        if adaptive_plain {
+            anyhow::ensure!(out.replayed.is_empty(), "adaptive plain execution unexpectedly replayed a file");
+            // No input, result, witness or audit field is refreshed by this
+            // plain run. Only the admission hint travels to the next job.
+            ledger
+                .recording_admission
+                .observe(shared_now, unstable_shared, true);
+            save_ledger(&ledger_path, &ledger)?;
+            if let Some(c) = &cloud
+                && !a.cloud_no_save
+            {
+                c.save(&dir);
+            }
+        }
         report_base.with_select(t_select).send(
             "critical",
             &ran_facts,
@@ -1263,15 +1374,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             Some(code),
         );
         eprintln!(
-            "quod vitest: ran {} files plain, replayed {} ({} function-level); quod {} ms (select); not recorded (the shadow run records)",
+            "quod vitest: ran {} files plain, replayed {} ({} function-level); quod {} ms (select); not recorded ({})",
             out.ran.len(),
             out.replayed.len(),
             narrowed.len(),
-            t_select.as_millis()
+            t_select.as_millis(),
+            if adaptive_plain { "adaptive recording backoff" } else { "the shadow run records" },
         );
         if let Some(p) = &a.summary {
             let s = serde_json::json!({
                 "recorded_files": ledger.files.len(),
+                "recording_policy": if adaptive_plain { "adaptive-plain" } else { "no-record" },
                 "ran": out.ran.len(),
                 "replayed": out.replayed.len(),
                 "audited": 0,
@@ -1742,9 +1855,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
 
     lap("render", &mut phases);
     ledger.compact();
-    let tmp = dir.join("ledger.json.tmp");
-    fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
-    fs::rename(&tmp, &ledger_path)?;
+    if adaptive_recording {
+        let shared = shared_fingerprint(&ledger, |id| ledger.states.get(id as usize).cloned());
+        ledger.recording_admission.observe(shared, unstable_shared, false);
+    }
+    save_ledger(&ledger_path, &ledger)?;
     lap("write", &mut phases);
     let t_done = t0.elapsed();
 
@@ -1814,6 +1929,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     if let Some(p) = &a.summary {
         let s = serde_json::json!({
             "recorded_files": ledger.files.len(),
+            "recording_policy": "record",
             "ran": out.ran.len(),
             "replayed": out.replayed.len(),
             "audited": audit.len(),
@@ -4274,6 +4390,66 @@ mod tests {
         )
         .unwrap();
         assert_ne!(b, rj(d.path()));
+    }
+
+    #[test]
+    fn recording_backoff_requires_repeated_instability_and_recovers_on_stability() {
+        let mut p = RecordingAdmission::default();
+        assert!(!p.skip("cold", true));
+        p.observe("cold".into(), false, false);
+        for next in ["first-miss", "second-miss"] {
+            assert!(!p.skip(next, true));
+            p.observe(next.into(), true, false);
+        }
+        assert!(p.skip("third-miss", true));
+        p.observe("third-miss".into(), true, true);
+        assert!(!p.skip("third-miss", true), "stable inputs resume recording immediately");
+        p.observe("third-miss".into(), false, false);
+        assert_eq!(p.misses, 0);
+        assert!(!p.skip("changed-again", true));
+    }
+
+    #[test]
+    fn recording_backoff_retries_after_seven_plain_runs() {
+        let mut p = RecordingAdmission { shared: "old".into(), misses: 2, skipped: 0 };
+        for i in 0..7 {
+            let next = i.to_string();
+            assert!(p.skip(&next, true));
+            p.observe(next, true, true);
+        }
+        assert!(!p.skip("probe", true));
+        p.observe("probe".into(), true, false);
+        assert!(p.skip("next", true));
+    }
+
+    #[test]
+    fn recording_backoff_never_overrides_required_recording_or_missing_state() {
+        let p = RecordingAdmission { shared: "old".into(), misses: u32::MAX, skipped: 0 };
+        assert!(!p.skip("new", false));
+        assert!(!p.skip("", true));
+        assert!(!RecordingAdmission { shared: String::new(), ..p.clone() }.skip("new", true));
+        let mut p = p;
+        p.observe("new".into(), true, true);
+        assert_eq!(p.misses, u32::MAX);
+        assert_eq!(p.skipped, 1);
+    }
+
+    #[test]
+    fn recording_hint_fingerprints_names_values_and_missing_inputs() {
+        let mut l = Ledger {
+            keys: vec!["sm:a".into(), "env:B".into()],
+            global: vec![0, 1],
+            ..Ledger::default()
+        };
+        let a = shared_fingerprint(&l, |id| Some(id.to_string()));
+        l.global.reverse();
+        assert_eq!(a, shared_fingerprint(&l, |id| Some(id.to_string())));
+        assert_ne!(a, shared_fingerprint(&l, |id| Some((id + 1).to_string())));
+        l.keys[0] = "sm:other".into();
+        assert_ne!(a, shared_fingerprint(&l, |id| Some(id.to_string())));
+        assert!(shared_fingerprint(&l, |_| None).is_empty());
+        l.global.push(99);
+        assert!(shared_fingerprint(&l, |id| Some(id.to_string())).is_empty());
     }
 
     #[test]
