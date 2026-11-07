@@ -1,0 +1,1572 @@
+{
+  "scope": "Vitest only; shipped cold recorder with CPU profiling between two unprofiled plain runs",
+  "binarySha256": "255377381ab5b6fd6ea35b7657885ee37c2459f131347a6099a3ca8b7b9f4126",
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "node": "v24.18.0",
+  "image": "ubuntu26/20261101.186.1",
+  "phases": [
+    {
+      "phase": "plain-before",
+      "seconds": 67.355613506,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "7aee10caf838fdcf50fbb9d9a8782221a75da94a51f1c4451fbf93645af718d2"
+    },
+    {
+      "phase": "recorded",
+      "seconds": 76.15319698599998,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "456eeedd15e3300441e679b2c5227b1039d36e9558cc1f17bc847d738e84bf56"
+    },
+    {
+      "phase": "plain-after",
+      "seconds": 67.41089792700001,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "2af19287f68259daecc13649b2eb7ceb55d408e209ef0d953525a99eb8123062"
+    }
+  ],
+  "semanticMatches": true,
+  "replayed": 0,
+  "metadataKeys": {
+    "sm": 395,
+    "sl": 257,
+    "st": 0
+  },
+  "profiles": [
+    {
+      "file": "CPU.20261107.071210.3771.0.001.cpuprofile",
+      "bytes": 719938,
+      "sha256": "fa06a928a38c84d2bc1123bc011a46819fc5f8216f098998d970604a405502ae"
+    },
+    {
+      "file": "CPU.20261107.071210.3772.0.001.cpuprofile",
+      "bytes": 1161238,
+      "sha256": "2ff80045051864249add5ceb01fe86f5887aa780ed56083fb12caef82c15c90b"
+    },
+    {
+      "file": "CPU.20261107.071211.3815.0.001.cpuprofile",
+      "bytes": 2506817,
+      "sha256": "3364be70e167bfb5f00e504ab6f6e1342eeeca229d754a08e878f4bd38cca058"
+    },
+    {
+      "file": "CPU.20261107.071211.3816.0.001.cpuprofile",
+      "bytes": 355739,
+      "sha256": "63f6297969aeb47c06b52243d4204dc233cc02930d40bf80a5c2a75618ac9572"
+    },
+    {
+      "file": "CPU.20261107.071211.3822.0.001.cpuprofile",
+      "bytes": 489155,
+      "sha256": "4f6ad4a059f21dc07173fbeea14c017754ea1bb6bd4f7f6d5f22be5aecd8c054"
+    },
+    {
+      "file": "CPU.20261107.071213.3868.0.001.cpuprofile",
+      "bytes": 279634,
+      "sha256": "07099cc16a091c6c00bbbeb5ebf4de34a3e348a2a0b6ebc223b76aca0aa92176"
+    },
+    {
+      "file": "CPU.20261107.071213.3889.0.001.cpuprofile",
+      "bytes": 292046,
+      "sha256": "21f661427199f7495f3fde511e50662273f7d58fea2a5f66e9fe156a40fb7f47"
+    },
+    {
+      "file": "CPU.20261107.071214.3911.0.001.cpuprofile",
+      "bytes": 282851,
+      "sha256": "48ea6f6db5916a3db35f784f69473d65fb180c8962aaecf3640b1d0aee6b70ad"
+    },
+    {
+      "file": "CPU.20261107.071214.3928.0.001.cpuprofile",
+      "bytes": 338128,
+      "sha256": "0e11ecd2b9149601bccde30081103a0e064bea668b86c95fe9e550aa16e91bc6"
+    },
+    {
+      "file": "CPU.20261107.071215.3954.0.001.cpuprofile",
+      "bytes": 345117,
+      "sha256": "fcebd8f6ba46225a72dd49665e3ad82bbde3a10a390c49632d042a3c205177cd"
+    },
+    {
+      "file": "CPU.20261107.071215.3976.0.001.cpuprofile",
+      "bytes": 292491,
+      "sha256": "7d2c61960bb10bfadeac7941b9127fb17154bb63623df0fe00b254a15f8cbbb4"
+    },
+    {
+      "file": "CPU.20261107.071216.3994.0.001.cpuprofile",
+      "bytes": 250328,
+      "sha256": "ab654b403f4f13150453cc2a4530afb85d09fdc2aaecd21942e1ed09ca7ad7b6"
+    },
+    {
+      "file": "CPU.20261107.071216.4014.0.001.cpuprofile",
+      "bytes": 234830,
+      "sha256": "253d9a2b02d6c3877d1ef4a80c88052504d1bdeefe3c256e859871c219d5b105"
+    },
+    {
+      "file": "CPU.20261107.071217.4028.0.001.cpuprofile",
+      "bytes": 271677,
+      "sha256": "784b2999c3459122d68d60469e8416b242b1825de0bb813e4e1cd7b2928bcd18"
+    },
+    {
+      "file": "CPU.20261107.071217.4036.0.001.cpuprofile",
+      "bytes": 219409,
+      "sha256": "2abe0e965f060c69b5af8ec0e0fc4dc0a13511448a0e2541bb81d8996a799da4"
+    },
+    {
+      "file": "CPU.20261107.071217.4050.0.001.cpuprofile",
+      "bytes": 257209,
+      "sha256": "d21ddfac6a993bccbd5a9c64269d0f63d29c6c1715ac3918f8c5a375bc9cc7fb"
+    },
+    {
+      "file": "CPU.20261107.071217.4058.0.001.cpuprofile",
+      "bytes": 292643,
+      "sha256": "21428fab33728cde9fc73164c4b28b2433974b9ecc7a346f7e293fd617a2ea99"
+    },
+    {
+      "file": "CPU.20261107.071218.4068.0.001.cpuprofile",
+      "bytes": 243134,
+      "sha256": "acd4add2e592f5b85af806d49e1d7b12cad74386ee14e7b50532f79de4a8901d"
+    },
+    {
+      "file": "CPU.20261107.071218.4076.0.001.cpuprofile",
+      "bytes": 1016908,
+      "sha256": "ee446a9b09dc88423ec323202d2534311264b1b69c82b545af43c7e77933b94e"
+    },
+    {
+      "file": "CPU.20261107.071218.4086.0.001.cpuprofile",
+      "bytes": 214743,
+      "sha256": "50533c01d564be1faa38ebeb951dc4c181e934d1be9517b52aabfccd32c108f1"
+    },
+    {
+      "file": "CPU.20261107.071218.4099.0.001.cpuprofile",
+      "bytes": 268409,
+      "sha256": "e7c678519c7a2702ce017d731e2685cafad459350495df04a97353bd23df6751"
+    },
+    {
+      "file": "CPU.20261107.071219.4108.0.001.cpuprofile",
+      "bytes": 243338,
+      "sha256": "8ae984f7c4309afac94d3cc33c2af90259668c3c4596c030d3183bd8c03ad259"
+    },
+    {
+      "file": "CPU.20261107.071219.4117.0.001.cpuprofile",
+      "bytes": 232145,
+      "sha256": "14c74029711a8706be5191ae473661571eee43df970cec58f4123aa0fdaf06ae"
+    },
+    {
+      "file": "CPU.20261107.071219.4126.0.001.cpuprofile",
+      "bytes": 252743,
+      "sha256": "f20dad8432f4b606363e74717510520ed9cf8b91a143fadf3e0ff191275a4758"
+    },
+    {
+      "file": "CPU.20261107.071219.4135.0.001.cpuprofile",
+      "bytes": 195036,
+      "sha256": "2ff4b6a5e21fc0b8aec5faa6d3a10055f16f9153b05b1d3a817e6d79bb6730ca"
+    },
+    {
+      "file": "CPU.20261107.071220.4144.0.001.cpuprofile",
+      "bytes": 251952,
+      "sha256": "28b7a39c3a606333f42decf3af6561bafb8e8ce7f1bd3e96af8a6b3f9a314c7c"
+    },
+    {
+      "file": "CPU.20261107.071220.4152.0.001.cpuprofile",
+      "bytes": 239288,
+      "sha256": "1db2735565648097fda80eb1019adce1755a5c3b1375874803e0dd70eef6c1c9"
+    },
+    {
+      "file": "CPU.20261107.071220.4162.0.001.cpuprofile",
+      "bytes": 226536,
+      "sha256": "a77db4e86e59c192d9f17ca5bc34748cf934b7b038646ebe0245f58fdf2b42bf"
+    },
+    {
+      "file": "CPU.20261107.071220.4168.0.001.cpuprofile",
+      "bytes": 229784,
+      "sha256": "e98d18f6cad6067d34d8393e4a2dec2a83d3656a3d8cefaee37ed35ceb065c1f"
+    },
+    {
+      "file": "CPU.20261107.071221.4180.0.001.cpuprofile",
+      "bytes": 226308,
+      "sha256": "98a07d16044cc88d3758cc91afd120d8b6635c033d0f21f400aea42e9a26358b"
+    },
+    {
+      "file": "CPU.20261107.071221.4188.0.001.cpuprofile",
+      "bytes": 230167,
+      "sha256": "a6b58d3874615a42438187dc553ecf1b1398c0abace360e768da11abd9d3194e"
+    },
+    {
+      "file": "CPU.20261107.071221.4198.0.001.cpuprofile",
+      "bytes": 207928,
+      "sha256": "e3ebea355d74e5afe9ca411dc79048c9a2f9328035a4978367a110eb99d5986d"
+    },
+    {
+      "file": "CPU.20261107.071221.4206.0.001.cpuprofile",
+      "bytes": 204405,
+      "sha256": "10ab9f543787fbccffcfa81616fc941891dc88156b7f4770dd9419e63c9aadc1"
+    },
+    {
+      "file": "CPU.20261107.071222.4216.0.001.cpuprofile",
+      "bytes": 169100,
+      "sha256": "d7a61fbaf7b1265b973d0a6476768c1d5b185f2b352cbef9a577f75316384809"
+    },
+    {
+      "file": "CPU.20261107.071222.4217.0.001.cpuprofile",
+      "bytes": 166409,
+      "sha256": "a849f9d2e417f4a2a21c4935577cdb1a397fb00947eaef2fc412ca9a652c1801"
+    },
+    {
+      "file": "CPU.20261107.071222.4235.0.001.cpuprofile",
+      "bytes": 233964,
+      "sha256": "a74d2f6cf62229e1f1b9a9b38d6db86b1a51b48ebfc9e444a59d9a0a2e66cd2b"
+    },
+    {
+      "file": "CPU.20261107.071222.4241.0.001.cpuprofile",
+      "bytes": 129927,
+      "sha256": "67b25a81a4a37ada70cea874cfc4cff6d5cfe19d9fa5dc6528a877a6ae83cf97"
+    },
+    {
+      "file": "CPU.20261107.071222.4253.0.001.cpuprofile",
+      "bytes": 152627,
+      "sha256": "8dce4e4e8b4b28b2a936580d748e0a79148359daa02b482b79efadb0c40d9fe8"
+    },
+    {
+      "file": "CPU.20261107.071222.4262.0.001.cpuprofile",
+      "bytes": 182094,
+      "sha256": "31e4f2b67d4b3acf635c49f70deaad93061a7c914f211ffb4f2465783503ce36"
+    },
+    {
+      "file": "CPU.20261107.071222.4268.0.001.cpuprofile",
+      "bytes": 1136629,
+      "sha256": "a335f83485db5ce65d459f8b907cfdb61201378d32d4680c807585839cd17b72"
+    },
+    {
+      "file": "CPU.20261107.071223.4280.0.001.cpuprofile",
+      "bytes": 1046150,
+      "sha256": "7dbaca5721ebfda16fa9cedf3ae0b2b48bfe06c3c024c233c56b4b0ceac2a24b"
+    },
+    {
+      "file": "CPU.20261107.071224.4298.0.001.cpuprofile",
+      "bytes": 303145,
+      "sha256": "cc555c1aa382a2a1b2db6f5cebd90f62348fb8ba0e1b92f770e58f52fedceee1"
+    },
+    {
+      "file": "CPU.20261107.071225.4316.0.001.cpuprofile",
+      "bytes": 248805,
+      "sha256": "7fb7bc6fc4f5062e5348bed1cbe5a87ed167b2131fb41a14d300539717f4ef97"
+    },
+    {
+      "file": "CPU.20261107.071225.4326.0.001.cpuprofile",
+      "bytes": 287228,
+      "sha256": "b29c2d6db3478287183fcf2e1fc6c3644d62b1463b914d19eb84b95fb58e5950"
+    },
+    {
+      "file": "CPU.20261107.071225.4333.0.001.cpuprofile",
+      "bytes": 242573,
+      "sha256": "50ae0053368d78113253f44089126fd26a4a9769708f7e89db2bbc2db2c4bba7"
+    },
+    {
+      "file": "CPU.20261107.071226.4344.0.001.cpuprofile",
+      "bytes": 224105,
+      "sha256": "e9adfb593ebfd7188a01a2acaab04739f0bf572ad0da719d15a65db2d5685dee"
+    },
+    {
+      "file": "CPU.20261107.071226.4345.0.001.cpuprofile",
+      "bytes": 229856,
+      "sha256": "ecf859c59894dd66abb6d5944d2e5b39e31b4e0d2ca6bf33db7e744d238b626d"
+    },
+    {
+      "file": "CPU.20261107.071226.4362.0.001.cpuprofile",
+      "bytes": 206226,
+      "sha256": "115ee8e1009a25e3cb6d87f17bea24b2a2e0e02bace561e19a0c09a9037641b0"
+    },
+    {
+      "file": "CPU.20261107.071226.4370.0.001.cpuprofile",
+      "bytes": 386822,
+      "sha256": "64b2b0e0469bda10fcf4b03a6dc4240b1e507a62ff6ef4ff92bd5c4e210e2953"
+    },
+    {
+      "file": "CPU.20261107.071227.4380.0.001.cpuprofile",
+      "bytes": 272506,
+      "sha256": "011daa2267e9769b95cb08615657355492163e3644682e69bac93e224098b9ad"
+    },
+    {
+      "file": "CPU.20261107.071227.4389.0.001.cpuprofile",
+      "bytes": 323814,
+      "sha256": "93426e5bffa25a5e956fda0f018d9da5412baf960b0df384ca9c397870cab195"
+    },
+    {
+      "file": "CPU.20261107.071227.4398.0.001.cpuprofile",
+      "bytes": 263783,
+      "sha256": "8f922c43acccb6972139354aa011e1147ffeb0c295930498e074d90ed618984a"
+    },
+    {
+      "file": "CPU.20261107.071228.4407.0.001.cpuprofile",
+      "bytes": 253130,
+      "sha256": "d12abeab702e81afbf66286b86e4d714b8ab2fdad42467218a343cc19f3d8c16"
+    },
+    {
+      "file": "CPU.20261107.071228.4415.0.001.cpuprofile",
+      "bytes": 275148,
+      "sha256": "cd865affab68257d4ef38055abd0b52463250caa80b7df8d104a9e597b0dbf1c"
+    },
+    {
+      "file": "CPU.20261107.071228.4425.0.001.cpuprofile",
+      "bytes": 252103,
+      "sha256": "45f8340e14a086f60c42c1a80829730eb3c8d3ac5189d2ae9a937c8819f0b680"
+    },
+    {
+      "file": "CPU.20261107.071228.4433.0.001.cpuprofile",
+      "bytes": 236819,
+      "sha256": "dec5c2fa64b8670ceb52dcf068e0d094c9c76d62f059293250568e0175f64372"
+    },
+    {
+      "file": "CPU.20261107.071228.4443.0.001.cpuprofile",
+      "bytes": 223614,
+      "sha256": "592e25283b2950fa962fa65214504a7f810f483ec65714ff01d0db18b8e071f0"
+    },
+    {
+      "file": "CPU.20261107.071229.4451.0.001.cpuprofile",
+      "bytes": 247638,
+      "sha256": "8e0bf143cfe2335d6e031400f1d5173c3d477a6e9cab9822a993931632ef11d5"
+    },
+    {
+      "file": "CPU.20261107.071229.4461.0.001.cpuprofile",
+      "bytes": 214599,
+      "sha256": "01808d88b71aa86f7d77114019a3d938ce2cb99369974cf25ae3a7581c90e5d7"
+    },
+    {
+      "file": "CPU.20261107.071229.4469.0.001.cpuprofile",
+      "bytes": 224885,
+      "sha256": "1962d40887e97cd659231e6ef348bb4cd01961a3085c4bb93ea5896aadb7c7f0"
+    },
+    {
+      "file": "CPU.20261107.071230.4487.0.001.cpuprofile",
+      "bytes": 292391,
+      "sha256": "b4fe3a8cf8f5528b146e122d02ee5b00bada50c424b8c9bf66fce8cc6e008052"
+    },
+    {
+      "file": "CPU.20261107.071230.4497.0.001.cpuprofile",
+      "bytes": 312671,
+      "sha256": "d2961fcce26a76d2125c82c4382e2292205efa508dd048989dbac726b9ac87d0"
+    },
+    {
+      "file": "CPU.20261107.071230.4503.0.001.cpuprofile",
+      "bytes": 256531,
+      "sha256": "602551fe433c8c6f5fb17aedc41ccced13f050697d7117eafc9c8822188aba91"
+    },
+    {
+      "file": "CPU.20261107.071231.4515.0.001.cpuprofile",
+      "bytes": 253066,
+      "sha256": "57a9ff5d994cb1e2f16cf7e13cdb60d35c3ee1e6b26915b9e5db68c781b26cad"
+    },
+    {
+      "file": "CPU.20261107.071231.4523.0.001.cpuprofile",
+      "bytes": 256725,
+      "sha256": "4b5e9ef4ca0f379bdf97083186433ce809c9fb56da2920f80796693b48f385d5"
+    },
+    {
+      "file": "CPU.20261107.071231.4533.0.001.cpuprofile",
+      "bytes": 273897,
+      "sha256": "9bdd10ef9b063e2b7b1360ad6982f98b5624caa9a6efcfade877e2b214238e62"
+    },
+    {
+      "file": "CPU.20261107.071231.4540.0.001.cpuprofile",
+      "bytes": 234823,
+      "sha256": "9dbedcf87015e68bab43d9d6028f5d659df821b0645bcaf01a6cbba9295abb4a"
+    },
+    {
+      "file": "CPU.20261107.071232.4552.0.001.cpuprofile",
+      "bytes": 214392,
+      "sha256": "a9ec1de3e15c8b389e6f6a350b82593a924bcde705ec94d7debe159fa8c7c008"
+    },
+    {
+      "file": "CPU.20261107.071232.4560.0.001.cpuprofile",
+      "bytes": 236332,
+      "sha256": "317b52c2f467a4d59a98fcd9c455c17401753b84af4673ef8a595ea92b1073da"
+    },
+    {
+      "file": "CPU.20261107.071232.4570.0.001.cpuprofile",
+      "bytes": 235188,
+      "sha256": "313b2e40263a66378f0414dc2a0d606f906d01c36a2c0d8fe9e6e6e252c06ec9"
+    },
+    {
+      "file": "CPU.20261107.071232.4578.0.001.cpuprofile",
+      "bytes": 218857,
+      "sha256": "e985fcca3b28c3d5f35301cfde7cf819fb605006bb839b167b3a8ac6eaa33c2d"
+    },
+    {
+      "file": "CPU.20261107.071233.4596.0.001.cpuprofile",
+      "bytes": 289948,
+      "sha256": "721b4b0f9c86f1a8e9dc8595e2951474eb2f8a9ac94c17ee3de3d21136132498"
+    },
+    {
+      "file": "CPU.20261107.071233.4606.0.001.cpuprofile",
+      "bytes": 303994,
+      "sha256": "c1821eb3e87f5b0fe076cd7c94c7ac0039f70df5e72c0ba1e9d12b5c64253cf0"
+    },
+    {
+      "file": "CPU.20261107.071233.4613.0.001.cpuprofile",
+      "bytes": 284959,
+      "sha256": "ef44bf85056eead3136b12f7b57329b994bdf33f31e2c214a2737b70794a242f"
+    },
+    {
+      "file": "CPU.20261107.071234.4624.0.001.cpuprofile",
+      "bytes": 272070,
+      "sha256": "f703fd35cd74396fcd465ef8ccca13946929bbf0de408ae5049ddfd06d18baa8"
+    },
+    {
+      "file": "CPU.20261107.071234.4632.0.001.cpuprofile",
+      "bytes": 294279,
+      "sha256": "9b57b6d04092799e047ef6929a242535fd21500ec2cf67689e735a591230088c"
+    },
+    {
+      "file": "CPU.20261107.071234.4642.0.001.cpuprofile",
+      "bytes": 270323,
+      "sha256": "403b44fc0599662c1a9877007796aa6172226b2b9c9b334b92788c067c94bbc6"
+    },
+    {
+      "file": "CPU.20261107.071234.4650.0.001.cpuprofile",
+      "bytes": 240809,
+      "sha256": "d85e9fef71d7f74b414eae103edd44f0a793c19df850300798726243982463f8"
+    },
+    {
+      "file": "CPU.20261107.071235.4660.0.001.cpuprofile",
+      "bytes": 242115,
+      "sha256": "e309e73324c82f106a42f4148e40117845de3e3fad5d39fc405eb9c47abf638c"
+    },
+    {
+      "file": "CPU.20261107.071235.4668.0.001.cpuprofile",
+      "bytes": 227691,
+      "sha256": "e29b60e69eae2d8196f0d653c6d9c4e9e1021cd35a90f7366ae39cf1c2b8f24d"
+    },
+    {
+      "file": "CPU.20261107.071235.4678.0.001.cpuprofile",
+      "bytes": 229704,
+      "sha256": "67f3ca4d39be5fa5930659b11a4c62a26b423c2c278c34818c4f37d007aff331"
+    },
+    {
+      "file": "CPU.20261107.071235.4686.0.001.cpuprofile",
+      "bytes": 216794,
+      "sha256": "d8ec7805461b792cdf07159c39b2d2a412d6ed0eac02a10caddb5b6bc6abb177"
+    },
+    {
+      "file": "CPU.20261107.071236.4704.0.001.cpuprofile",
+      "bytes": 329705,
+      "sha256": "64c0a9be83b470e1fe1b48150dfec222b76f21e83ff482ff032a657ac89ba6b6"
+    },
+    {
+      "file": "CPU.20261107.071236.4715.0.001.cpuprofile",
+      "bytes": 262363,
+      "sha256": "565216e30070c6d5f4be9d91126a52904ff83dd7eeea85a7088762aa2aa0fbfe"
+    },
+    {
+      "file": "CPU.20261107.071236.4723.0.001.cpuprofile",
+      "bytes": 254811,
+      "sha256": "d874fb7a0633585606dc7e46c705860b35a3de2125751c6f6a02fef6acf047f7"
+    },
+    {
+      "file": "CPU.20261107.071237.4733.0.001.cpuprofile",
+      "bytes": 270364,
+      "sha256": "2eb04fbe3d1b5116365b798f985df82899ef39fef617264074d2a7497b32f6af"
+    },
+    {
+      "file": "CPU.20261107.071237.4741.0.001.cpuprofile",
+      "bytes": 278251,
+      "sha256": "2bd8ae69ef9cc821d7a103d82e6a20fcd0a1889a6148c734c4215b3a7ce4d200"
+    },
+    {
+      "file": "CPU.20261107.071237.4752.0.001.cpuprofile",
+      "bytes": 238203,
+      "sha256": "591786c1c8137dcc96ddad04bdd2e67098946646bf28221ada635e33bd0f84c5"
+    },
+    {
+      "file": "CPU.20261107.071237.4760.0.001.cpuprofile",
+      "bytes": 233376,
+      "sha256": "0a709f948f8240ea001f589c8117498ec7ba26b62b1aa43d5710bddba57408ff"
+    },
+    {
+      "file": "CPU.20261107.071238.4770.0.001.cpuprofile",
+      "bytes": 242020,
+      "sha256": "53431dcd49bf2e345e95e088c100096b405663c84c128649d3811ae7a6c56463"
+    },
+    {
+      "file": "CPU.20261107.071238.4778.0.001.cpuprofile",
+      "bytes": 257575,
+      "sha256": "f8e8867ded8bcc91a29f1c94f0856deedd3b7050d2da7cae5e0f1541d012db31"
+    },
+    {
+      "file": "CPU.20261107.071238.4788.0.001.cpuprofile",
+      "bytes": 216015,
+      "sha256": "0b31cbe9d062a5ba14d1621ef2cceb28414654e3b1176eeb4cdf84cb99f63a59"
+    },
+    {
+      "file": "CPU.20261107.071238.4796.0.001.cpuprofile",
+      "bytes": 218191,
+      "sha256": "b315f2e1d6c183be7876006acdef54188760b3a86d04cd86faf4b5a92762a52b"
+    },
+    {
+      "file": "CPU.20261107.071239.4806.0.001.cpuprofile",
+      "bytes": 284727,
+      "sha256": "1db95f339a850378fc683863acf54cc14c117f0f51fffb519d37c2e0010fe32c"
+    },
+    {
+      "file": "CPU.20261107.071239.4824.0.001.cpuprofile",
+      "bytes": 267710,
+      "sha256": "9fd8a1d1eb9ae97ba6a4983d76dd3baba399bfae849db5d7c7b1248931bf42a3"
+    },
+    {
+      "file": "CPU.20261107.071239.4833.0.001.cpuprofile",
+      "bytes": 281461,
+      "sha256": "2693c8dc2a5ad9f3d0ca88dff8ac63cc7d47deb97f246ff192f505e13a183285"
+    },
+    {
+      "file": "CPU.20261107.071240.4842.0.001.cpuprofile",
+      "bytes": 268766,
+      "sha256": "0e2a38a11e153545e052e97f797fb0948edfb0b80fb9d2629a68cdf3bcce363e"
+    },
+    {
+      "file": "CPU.20261107.071240.4851.0.001.cpuprofile",
+      "bytes": 267146,
+      "sha256": "951db94f135d6ac4a359ae2480beae9767f4af80facd45332747c742d12a18fc"
+    },
+    {
+      "file": "CPU.20261107.071240.4860.0.001.cpuprofile",
+      "bytes": 232670,
+      "sha256": "bc25874aff9bdcb2af84c77a769ae089b6e05077a7067476b29e6ecb03cbdc5b"
+    },
+    {
+      "file": "CPU.20261107.071241.4869.0.001.cpuprofile",
+      "bytes": 262937,
+      "sha256": "562fd941b7f461aa4cb7f32512960036c1c0f943bf59282dd4194854584d3d26"
+    },
+    {
+      "file": "CPU.20261107.071241.4877.0.001.cpuprofile",
+      "bytes": 234500,
+      "sha256": "16d6244e74654f8bca553321e9520773c75207419f199de1e8959e788b83d509"
+    },
+    {
+      "file": "CPU.20261107.071241.4887.0.001.cpuprofile",
+      "bytes": 234198,
+      "sha256": "bdd974c457e723bcf666b4899430da78e918016420829910b7d34187f2e31494"
+    },
+    {
+      "file": "CPU.20261107.071241.4895.0.001.cpuprofile",
+      "bytes": 225032,
+      "sha256": "f07789efeb3fbfd40cb606ba99d1c9a0851ef60b3ca972f584aa13249ae4539a"
+    },
+    {
+      "file": "CPU.20261107.071242.4905.0.001.cpuprofile",
+      "bytes": 228827,
+      "sha256": "c24b20a8c298fd4056b945873e210058d8da45e5ba30d1d8dccdec95db0a5be6"
+    },
+    {
+      "file": "CPU.20261107.071242.4912.0.001.cpuprofile",
+      "bytes": 356006,
+      "sha256": "b849e620ee5b26c133e8e97e16dd447dc68848a798794c3cd2662dbc2cbd2645"
+    },
+    {
+      "file": "CPU.20261107.071242.4923.0.001.cpuprofile",
+      "bytes": 297164,
+      "sha256": "90df090ecebebccfb2b11cfbd4bc85b3fb72b9d3b6a349a3be9c19f3ce5e7426"
+    },
+    {
+      "file": "CPU.20261107.071242.4932.0.001.cpuprofile",
+      "bytes": 327929,
+      "sha256": "b34117ed817d202b26c6570059cebba833830204009a3dbb81dcb72b099b8e14"
+    },
+    {
+      "file": "CPU.20261107.071243.4941.0.001.cpuprofile",
+      "bytes": 243917,
+      "sha256": "e2f8c10ac65fad5964ca9737f4aa0729cb0e7fffb3f08d732eb365ffa82cc7ec"
+    },
+    {
+      "file": "CPU.20261107.071243.4950.0.001.cpuprofile",
+      "bytes": 258411,
+      "sha256": "3ff2179c7f508788d9dca557c625970fb64dffb94998e360df0ec6d4af715e45"
+    },
+    {
+      "file": "CPU.20261107.071243.4958.0.001.cpuprofile",
+      "bytes": 238984,
+      "sha256": "935d81ba6f6b5d0e85891ddea591fcec344297d0c48ac2da8a8b9cc1037e20e2"
+    },
+    {
+      "file": "CPU.20261107.071244.4968.0.001.cpuprofile",
+      "bytes": 246392,
+      "sha256": "15dffe9f9491506a6c3590024518225bc1af9892f04710bb938ad83c9759c4e0"
+    },
+    {
+      "file": "CPU.20261107.071244.4976.0.001.cpuprofile",
+      "bytes": 251771,
+      "sha256": "b71670ee80f4d280212d3338ad0a8ced621fe673975d00b54e130ccf96f87e96"
+    },
+    {
+      "file": "CPU.20261107.071244.4986.0.001.cpuprofile",
+      "bytes": 219594,
+      "sha256": "f4a4542c557951d57daaaa3e024271b3359c65f9762fc93772ffff6684116c5f"
+    },
+    {
+      "file": "CPU.20261107.071244.4994.0.001.cpuprofile",
+      "bytes": 236099,
+      "sha256": "8d9fcb30a200604fe19c6f4b35e9f4f44ec186d450ef232d327ee2b3ae9e5af6"
+    },
+    {
+      "file": "CPU.20261107.071245.5004.0.001.cpuprofile",
+      "bytes": 264450,
+      "sha256": "320a6944c7040f83719e5d5541fe2f411e6579cb2c73d65305b39042ef224c4f"
+    },
+    {
+      "file": "CPU.20261107.071245.5012.0.001.cpuprofile",
+      "bytes": 219424,
+      "sha256": "2baecb3e829308e59c4253559b1efa7def61a6b71fecb56c3ca97cc37ddd35cf"
+    }
+  ],
+  "limitation": "One runner, fixed phase order and profiler overhead; no causal speedup or full-job savings claim.",
+  "run": "https://github.com/pango07/quod/actions/runs/42350116176",
+  "job": 128336254243,
+  "harnessCommit": "450c7bc9bfaa312fb48123b77ca2a0192acb2f1f",
+  "engine": "f9d8153",
+  "action": "e7098a6b5e5b8d460d0f63af782b25aaa23d4934",
+  "plainMeanSeconds": 67.3832557165,
+  "recordedRatioVsPlainMean": 1.1301501563889633,
+  "recordedExtraSeconds": 8.76994126949998,
+  "analysis": {
+    "profiles": 116,
+    "negativeSampleDeltasPreserved": [
+      {
+        "file": "CPU.20261107.071220.4152.0.001.cpuprofile",
+        "deltaUs": -4
+      },
+      {
+        "file": "CPU.20261107.071236.4723.0.001.cpuprofile",
+        "deltaUs": -3
+      },
+      {
+        "file": "CPU.20261107.071244.4986.0.001.cpuprofile",
+        "deltaUs": -2
+      }
+    ],
+    "categoriesSelfSeconds": [
+      [
+        "runtime:(idle)",
+        147.823
+      ],
+      [
+        "project",
+        23.572
+      ],
+      [
+        "convex",
+        21.32
+      ],
+      [
+        "convex-test",
+        20.033
+      ],
+      [
+        "vitest",
+        7.77
+      ],
+      [
+        "node:internal/child_process",
+        6.25
+      ],
+      [
+        "runtime:(garbage collector)",
+        6.022
+      ],
+      [
+        "node:internal/modules/esm/utils",
+        5.303
+      ],
+      [
+        "chai",
+        5.253
+      ],
+      [
+        ".quod-vitest",
+        3.773
+      ],
+      [
+        "vite",
+        3.493
+      ],
+      [
+        "node:internal/modules/cjs/loader",
+        2.946
+      ],
+      [
+        "node:util",
+        2.542
+      ],
+      [
+        "runtime:(program)",
+        2.321
+      ],
+      [
+        "node:internal/bootstrap/realm",
+        2.061
+      ],
+      [
+        "@edge-runtime/primitives",
+        1.959
+      ],
+      [
+        "runtime:RegExp: ^[0-9]+",
+        1.551
+      ],
+      [
+        "node:internal/deps/undici/undici",
+        1.423
+      ],
+      [
+        "runtime:runMicrotasks",
+        1.228
+      ],
+      [
+        "runtime:getCallSites",
+        1.217
+      ]
+    ],
+    "functionsSelfSeconds": [
+      [
+        ":-1 (idle)",
+        147.823
+      ],
+      [
+        "evalmachine.<anonymous>:2 get",
+        8.34
+      ],
+      [
+        ":-1 (garbage collector)",
+        6.022
+      ],
+      [
+        "node:internal/modules/esm/utils:315 compileSourceTextModule",
+        5.282
+      ],
+      [
+        "node:internal/child_process:1127 spawnSync",
+        5.217
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex/dist/esm/values/value.js:201 convexToJsonInternal",
+        4.68
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex-test/dist/index.js:391 _iterateDocs",
+        4.215
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex/dist/esm/values/compare.js:6 compareAsTuples",
+        3.729
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex-test/dist/index.js:577 evaluateFieldPath",
+        3.15
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts:217 check",
+        2.762
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex-test/dist/index.js:878 ",
+        2.74
+      ],
+      [
+        "node:util:552 getCallSites",
+        2.542
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts:98 cursor",
+        2.478
+      ],
+      [
+        ":-1 (program)",
+        2.321
+      ],
+      [
+        "node:internal/modules/cjs/loader:1761 wrapSafe",
+        2.27
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex-test/dist/index.js:413 _resolveQuerySource",
+        2.202
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex-test/dist/index.js:539 tableNameFromId",
+        2.139
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex/dist/esm/server/impl/syscall.js:3 performSyscall",
+        2.014
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/convex/dist/esm/server/impl/syscall.js:12 performAsyncSyscall",
+        1.755
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js:1610 setState",
+        1.718
+      ]
+    ],
+    "quodInclusiveSeconds": [
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:770 get",
+        7.65
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:735 rec",
+        7.528
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:330 toolCaller",
+        7.487
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:413 w",
+        7.329
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:320 callerCacheKey",
+        4.702
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:887 resolve",
+        2.758
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:347 toolCallerUncached",
+        2.325
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/driver.mjs:0 ",
+        2.103
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:824 load",
+        1.151
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:134 add",
+        0.854
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/setup.mjs:0 ",
+        0.524
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:605 parse",
+        0.269
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:496 ",
+        0.26
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:396 norm",
+        0.256
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:243 workspaceLink",
+        0.156
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/driver.mjs:478 ",
+        0.145
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:476 file",
+        0.136
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:504 ",
+        0.124
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:410 wrap",
+        0.109
+      ],
+      [
+        "file:///home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/record.mjs:467 patchFs",
+        0.095
+      ]
+    ],
+    "longestProfiles": [
+      {
+        "file": "CPU.20261107.071210.3771.0.001.cpuprofile",
+        "wallSeconds": 76.066974,
+        "sampledSeconds": 76.066431
+      },
+      {
+        "file": "CPU.20261107.071210.3772.0.001.cpuprofile",
+        "wallSeconds": 75.91034,
+        "sampledSeconds": 75.910156
+      },
+      {
+        "file": "CPU.20261107.071211.3815.0.001.cpuprofile",
+        "wallSeconds": 75.145705,
+        "sampledSeconds": 75.144141
+      },
+      {
+        "file": "CPU.20261107.071211.3816.0.001.cpuprofile",
+        "wallSeconds": 5.786652,
+        "sampledSeconds": 5.78646
+      },
+      {
+        "file": "CPU.20261107.071211.3822.0.001.cpuprofile",
+        "wallSeconds": 1.617497,
+        "sampledSeconds": 1.617121
+      }
+    ]
+  },
+  "artifact": {
+    "id": 13565795911,
+    "bytes": 3628661,
+    "sha256": "3d8511c27f02b6f2ea18eed325641886812f9019cd496045ed0566f669bb8597",
+    "files": 125,
+    "expandedBytes": 38991470
+  },
+  "artifactFiles": [
+    {
+      "path": "cpu/CPU.20261107.071210.3771.0.001.cpuprofile",
+      "bytes": 719938,
+      "sha256": "fa06a928a38c84d2bc1123bc011a46819fc5f8216f098998d970604a405502ae"
+    },
+    {
+      "path": "cpu/CPU.20261107.071210.3772.0.001.cpuprofile",
+      "bytes": 1161238,
+      "sha256": "2ff80045051864249add5ceb01fe86f5887aa780ed56083fb12caef82c15c90b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071211.3815.0.001.cpuprofile",
+      "bytes": 2506817,
+      "sha256": "3364be70e167bfb5f00e504ab6f6e1342eeeca229d754a08e878f4bd38cca058"
+    },
+    {
+      "path": "cpu/CPU.20261107.071211.3816.0.001.cpuprofile",
+      "bytes": 355739,
+      "sha256": "63f6297969aeb47c06b52243d4204dc233cc02930d40bf80a5c2a75618ac9572"
+    },
+    {
+      "path": "cpu/CPU.20261107.071211.3822.0.001.cpuprofile",
+      "bytes": 489155,
+      "sha256": "4f6ad4a059f21dc07173fbeea14c017754ea1bb6bd4f7f6d5f22be5aecd8c054"
+    },
+    {
+      "path": "cpu/CPU.20261107.071213.3868.0.001.cpuprofile",
+      "bytes": 279634,
+      "sha256": "07099cc16a091c6c00bbbeb5ebf4de34a3e348a2a0b6ebc223b76aca0aa92176"
+    },
+    {
+      "path": "cpu/CPU.20261107.071213.3889.0.001.cpuprofile",
+      "bytes": 292046,
+      "sha256": "21f661427199f7495f3fde511e50662273f7d58fea2a5f66e9fe156a40fb7f47"
+    },
+    {
+      "path": "cpu/CPU.20261107.071214.3911.0.001.cpuprofile",
+      "bytes": 282851,
+      "sha256": "48ea6f6db5916a3db35f784f69473d65fb180c8962aaecf3640b1d0aee6b70ad"
+    },
+    {
+      "path": "cpu/CPU.20261107.071214.3928.0.001.cpuprofile",
+      "bytes": 338128,
+      "sha256": "0e11ecd2b9149601bccde30081103a0e064bea668b86c95fe9e550aa16e91bc6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071215.3954.0.001.cpuprofile",
+      "bytes": 345117,
+      "sha256": "fcebd8f6ba46225a72dd49665e3ad82bbde3a10a390c49632d042a3c205177cd"
+    },
+    {
+      "path": "cpu/CPU.20261107.071215.3976.0.001.cpuprofile",
+      "bytes": 292491,
+      "sha256": "7d2c61960bb10bfadeac7941b9127fb17154bb63623df0fe00b254a15f8cbbb4"
+    },
+    {
+      "path": "cpu/CPU.20261107.071216.3994.0.001.cpuprofile",
+      "bytes": 250328,
+      "sha256": "ab654b403f4f13150453cc2a4530afb85d09fdc2aaecd21942e1ed09ca7ad7b6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071216.4014.0.001.cpuprofile",
+      "bytes": 234830,
+      "sha256": "253d9a2b02d6c3877d1ef4a80c88052504d1bdeefe3c256e859871c219d5b105"
+    },
+    {
+      "path": "cpu/CPU.20261107.071217.4028.0.001.cpuprofile",
+      "bytes": 271677,
+      "sha256": "784b2999c3459122d68d60469e8416b242b1825de0bb813e4e1cd7b2928bcd18"
+    },
+    {
+      "path": "cpu/CPU.20261107.071217.4036.0.001.cpuprofile",
+      "bytes": 219409,
+      "sha256": "2abe0e965f060c69b5af8ec0e0fc4dc0a13511448a0e2541bb81d8996a799da4"
+    },
+    {
+      "path": "cpu/CPU.20261107.071217.4050.0.001.cpuprofile",
+      "bytes": 257209,
+      "sha256": "d21ddfac6a993bccbd5a9c64269d0f63d29c6c1715ac3918f8c5a375bc9cc7fb"
+    },
+    {
+      "path": "cpu/CPU.20261107.071217.4058.0.001.cpuprofile",
+      "bytes": 292643,
+      "sha256": "21428fab33728cde9fc73164c4b28b2433974b9ecc7a346f7e293fd617a2ea99"
+    },
+    {
+      "path": "cpu/CPU.20261107.071218.4068.0.001.cpuprofile",
+      "bytes": 243134,
+      "sha256": "acd4add2e592f5b85af806d49e1d7b12cad74386ee14e7b50532f79de4a8901d"
+    },
+    {
+      "path": "cpu/CPU.20261107.071218.4076.0.001.cpuprofile",
+      "bytes": 1016908,
+      "sha256": "ee446a9b09dc88423ec323202d2534311264b1b69c82b545af43c7e77933b94e"
+    },
+    {
+      "path": "cpu/CPU.20261107.071218.4086.0.001.cpuprofile",
+      "bytes": 214743,
+      "sha256": "50533c01d564be1faa38ebeb951dc4c181e934d1be9517b52aabfccd32c108f1"
+    },
+    {
+      "path": "cpu/CPU.20261107.071218.4099.0.001.cpuprofile",
+      "bytes": 268409,
+      "sha256": "e7c678519c7a2702ce017d731e2685cafad459350495df04a97353bd23df6751"
+    },
+    {
+      "path": "cpu/CPU.20261107.071219.4108.0.001.cpuprofile",
+      "bytes": 243338,
+      "sha256": "8ae984f7c4309afac94d3cc33c2af90259668c3c4596c030d3183bd8c03ad259"
+    },
+    {
+      "path": "cpu/CPU.20261107.071219.4117.0.001.cpuprofile",
+      "bytes": 232145,
+      "sha256": "14c74029711a8706be5191ae473661571eee43df970cec58f4123aa0fdaf06ae"
+    },
+    {
+      "path": "cpu/CPU.20261107.071219.4126.0.001.cpuprofile",
+      "bytes": 252743,
+      "sha256": "f20dad8432f4b606363e74717510520ed9cf8b91a143fadf3e0ff191275a4758"
+    },
+    {
+      "path": "cpu/CPU.20261107.071219.4135.0.001.cpuprofile",
+      "bytes": 195036,
+      "sha256": "2ff4b6a5e21fc0b8aec5faa6d3a10055f16f9153b05b1d3a817e6d79bb6730ca"
+    },
+    {
+      "path": "cpu/CPU.20261107.071220.4144.0.001.cpuprofile",
+      "bytes": 251952,
+      "sha256": "28b7a39c3a606333f42decf3af6561bafb8e8ce7f1bd3e96af8a6b3f9a314c7c"
+    },
+    {
+      "path": "cpu/CPU.20261107.071220.4152.0.001.cpuprofile",
+      "bytes": 239288,
+      "sha256": "1db2735565648097fda80eb1019adce1755a5c3b1375874803e0dd70eef6c1c9"
+    },
+    {
+      "path": "cpu/CPU.20261107.071220.4162.0.001.cpuprofile",
+      "bytes": 226536,
+      "sha256": "a77db4e86e59c192d9f17ca5bc34748cf934b7b038646ebe0245f58fdf2b42bf"
+    },
+    {
+      "path": "cpu/CPU.20261107.071220.4168.0.001.cpuprofile",
+      "bytes": 229784,
+      "sha256": "e98d18f6cad6067d34d8393e4a2dec2a83d3656a3d8cefaee37ed35ceb065c1f"
+    },
+    {
+      "path": "cpu/CPU.20261107.071221.4180.0.001.cpuprofile",
+      "bytes": 226308,
+      "sha256": "98a07d16044cc88d3758cc91afd120d8b6635c033d0f21f400aea42e9a26358b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071221.4188.0.001.cpuprofile",
+      "bytes": 230167,
+      "sha256": "a6b58d3874615a42438187dc553ecf1b1398c0abace360e768da11abd9d3194e"
+    },
+    {
+      "path": "cpu/CPU.20261107.071221.4198.0.001.cpuprofile",
+      "bytes": 207928,
+      "sha256": "e3ebea355d74e5afe9ca411dc79048c9a2f9328035a4978367a110eb99d5986d"
+    },
+    {
+      "path": "cpu/CPU.20261107.071221.4206.0.001.cpuprofile",
+      "bytes": 204405,
+      "sha256": "10ab9f543787fbccffcfa81616fc941891dc88156b7f4770dd9419e63c9aadc1"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4216.0.001.cpuprofile",
+      "bytes": 169100,
+      "sha256": "d7a61fbaf7b1265b973d0a6476768c1d5b185f2b352cbef9a577f75316384809"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4217.0.001.cpuprofile",
+      "bytes": 166409,
+      "sha256": "a849f9d2e417f4a2a21c4935577cdb1a397fb00947eaef2fc412ca9a652c1801"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4235.0.001.cpuprofile",
+      "bytes": 233964,
+      "sha256": "a74d2f6cf62229e1f1b9a9b38d6db86b1a51b48ebfc9e444a59d9a0a2e66cd2b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4241.0.001.cpuprofile",
+      "bytes": 129927,
+      "sha256": "67b25a81a4a37ada70cea874cfc4cff6d5cfe19d9fa5dc6528a877a6ae83cf97"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4253.0.001.cpuprofile",
+      "bytes": 152627,
+      "sha256": "8dce4e4e8b4b28b2a936580d748e0a79148359daa02b482b79efadb0c40d9fe8"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4262.0.001.cpuprofile",
+      "bytes": 182094,
+      "sha256": "31e4f2b67d4b3acf635c49f70deaad93061a7c914f211ffb4f2465783503ce36"
+    },
+    {
+      "path": "cpu/CPU.20261107.071222.4268.0.001.cpuprofile",
+      "bytes": 1136629,
+      "sha256": "a335f83485db5ce65d459f8b907cfdb61201378d32d4680c807585839cd17b72"
+    },
+    {
+      "path": "cpu/CPU.20261107.071223.4280.0.001.cpuprofile",
+      "bytes": 1046150,
+      "sha256": "7dbaca5721ebfda16fa9cedf3ae0b2b48bfe06c3c024c233c56b4b0ceac2a24b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071224.4298.0.001.cpuprofile",
+      "bytes": 303145,
+      "sha256": "cc555c1aa382a2a1b2db6f5cebd90f62348fb8ba0e1b92f770e58f52fedceee1"
+    },
+    {
+      "path": "cpu/CPU.20261107.071225.4316.0.001.cpuprofile",
+      "bytes": 248805,
+      "sha256": "7fb7bc6fc4f5062e5348bed1cbe5a87ed167b2131fb41a14d300539717f4ef97"
+    },
+    {
+      "path": "cpu/CPU.20261107.071225.4326.0.001.cpuprofile",
+      "bytes": 287228,
+      "sha256": "b29c2d6db3478287183fcf2e1fc6c3644d62b1463b914d19eb84b95fb58e5950"
+    },
+    {
+      "path": "cpu/CPU.20261107.071225.4333.0.001.cpuprofile",
+      "bytes": 242573,
+      "sha256": "50ae0053368d78113253f44089126fd26a4a9769708f7e89db2bbc2db2c4bba7"
+    },
+    {
+      "path": "cpu/CPU.20261107.071226.4344.0.001.cpuprofile",
+      "bytes": 224105,
+      "sha256": "e9adfb593ebfd7188a01a2acaab04739f0bf572ad0da719d15a65db2d5685dee"
+    },
+    {
+      "path": "cpu/CPU.20261107.071226.4345.0.001.cpuprofile",
+      "bytes": 229856,
+      "sha256": "ecf859c59894dd66abb6d5944d2e5b39e31b4e0d2ca6bf33db7e744d238b626d"
+    },
+    {
+      "path": "cpu/CPU.20261107.071226.4362.0.001.cpuprofile",
+      "bytes": 206226,
+      "sha256": "115ee8e1009a25e3cb6d87f17bea24b2a2e0e02bace561e19a0c09a9037641b0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071226.4370.0.001.cpuprofile",
+      "bytes": 386822,
+      "sha256": "64b2b0e0469bda10fcf4b03a6dc4240b1e507a62ff6ef4ff92bd5c4e210e2953"
+    },
+    {
+      "path": "cpu/CPU.20261107.071227.4380.0.001.cpuprofile",
+      "bytes": 272506,
+      "sha256": "011daa2267e9769b95cb08615657355492163e3644682e69bac93e224098b9ad"
+    },
+    {
+      "path": "cpu/CPU.20261107.071227.4389.0.001.cpuprofile",
+      "bytes": 323814,
+      "sha256": "93426e5bffa25a5e956fda0f018d9da5412baf960b0df384ca9c397870cab195"
+    },
+    {
+      "path": "cpu/CPU.20261107.071227.4398.0.001.cpuprofile",
+      "bytes": 263783,
+      "sha256": "8f922c43acccb6972139354aa011e1147ffeb0c295930498e074d90ed618984a"
+    },
+    {
+      "path": "cpu/CPU.20261107.071228.4407.0.001.cpuprofile",
+      "bytes": 253130,
+      "sha256": "d12abeab702e81afbf66286b86e4d714b8ab2fdad42467218a343cc19f3d8c16"
+    },
+    {
+      "path": "cpu/CPU.20261107.071228.4415.0.001.cpuprofile",
+      "bytes": 275148,
+      "sha256": "cd865affab68257d4ef38055abd0b52463250caa80b7df8d104a9e597b0dbf1c"
+    },
+    {
+      "path": "cpu/CPU.20261107.071228.4425.0.001.cpuprofile",
+      "bytes": 252103,
+      "sha256": "45f8340e14a086f60c42c1a80829730eb3c8d3ac5189d2ae9a937c8819f0b680"
+    },
+    {
+      "path": "cpu/CPU.20261107.071228.4433.0.001.cpuprofile",
+      "bytes": 236819,
+      "sha256": "dec5c2fa64b8670ceb52dcf068e0d094c9c76d62f059293250568e0175f64372"
+    },
+    {
+      "path": "cpu/CPU.20261107.071228.4443.0.001.cpuprofile",
+      "bytes": 223614,
+      "sha256": "592e25283b2950fa962fa65214504a7f810f483ec65714ff01d0db18b8e071f0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071229.4451.0.001.cpuprofile",
+      "bytes": 247638,
+      "sha256": "8e0bf143cfe2335d6e031400f1d5173c3d477a6e9cab9822a993931632ef11d5"
+    },
+    {
+      "path": "cpu/CPU.20261107.071229.4461.0.001.cpuprofile",
+      "bytes": 214599,
+      "sha256": "01808d88b71aa86f7d77114019a3d938ce2cb99369974cf25ae3a7581c90e5d7"
+    },
+    {
+      "path": "cpu/CPU.20261107.071229.4469.0.001.cpuprofile",
+      "bytes": 224885,
+      "sha256": "1962d40887e97cd659231e6ef348bb4cd01961a3085c4bb93ea5896aadb7c7f0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071230.4487.0.001.cpuprofile",
+      "bytes": 292391,
+      "sha256": "b4fe3a8cf8f5528b146e122d02ee5b00bada50c424b8c9bf66fce8cc6e008052"
+    },
+    {
+      "path": "cpu/CPU.20261107.071230.4497.0.001.cpuprofile",
+      "bytes": 312671,
+      "sha256": "d2961fcce26a76d2125c82c4382e2292205efa508dd048989dbac726b9ac87d0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071230.4503.0.001.cpuprofile",
+      "bytes": 256531,
+      "sha256": "602551fe433c8c6f5fb17aedc41ccced13f050697d7117eafc9c8822188aba91"
+    },
+    {
+      "path": "cpu/CPU.20261107.071231.4515.0.001.cpuprofile",
+      "bytes": 253066,
+      "sha256": "57a9ff5d994cb1e2f16cf7e13cdb60d35c3ee1e6b26915b9e5db68c781b26cad"
+    },
+    {
+      "path": "cpu/CPU.20261107.071231.4523.0.001.cpuprofile",
+      "bytes": 256725,
+      "sha256": "4b5e9ef4ca0f379bdf97083186433ce809c9fb56da2920f80796693b48f385d5"
+    },
+    {
+      "path": "cpu/CPU.20261107.071231.4533.0.001.cpuprofile",
+      "bytes": 273897,
+      "sha256": "9bdd10ef9b063e2b7b1360ad6982f98b5624caa9a6efcfade877e2b214238e62"
+    },
+    {
+      "path": "cpu/CPU.20261107.071231.4540.0.001.cpuprofile",
+      "bytes": 234823,
+      "sha256": "9dbedcf87015e68bab43d9d6028f5d659df821b0645bcaf01a6cbba9295abb4a"
+    },
+    {
+      "path": "cpu/CPU.20261107.071232.4552.0.001.cpuprofile",
+      "bytes": 214392,
+      "sha256": "a9ec1de3e15c8b389e6f6a350b82593a924bcde705ec94d7debe159fa8c7c008"
+    },
+    {
+      "path": "cpu/CPU.20261107.071232.4560.0.001.cpuprofile",
+      "bytes": 236332,
+      "sha256": "317b52c2f467a4d59a98fcd9c455c17401753b84af4673ef8a595ea92b1073da"
+    },
+    {
+      "path": "cpu/CPU.20261107.071232.4570.0.001.cpuprofile",
+      "bytes": 235188,
+      "sha256": "313b2e40263a66378f0414dc2a0d606f906d01c36a2c0d8fe9e6e6e252c06ec9"
+    },
+    {
+      "path": "cpu/CPU.20261107.071232.4578.0.001.cpuprofile",
+      "bytes": 218857,
+      "sha256": "e985fcca3b28c3d5f35301cfde7cf819fb605006bb839b167b3a8ac6eaa33c2d"
+    },
+    {
+      "path": "cpu/CPU.20261107.071233.4596.0.001.cpuprofile",
+      "bytes": 289948,
+      "sha256": "721b4b0f9c86f1a8e9dc8595e2951474eb2f8a9ac94c17ee3de3d21136132498"
+    },
+    {
+      "path": "cpu/CPU.20261107.071233.4606.0.001.cpuprofile",
+      "bytes": 303994,
+      "sha256": "c1821eb3e87f5b0fe076cd7c94c7ac0039f70df5e72c0ba1e9d12b5c64253cf0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071233.4613.0.001.cpuprofile",
+      "bytes": 284959,
+      "sha256": "ef44bf85056eead3136b12f7b57329b994bdf33f31e2c214a2737b70794a242f"
+    },
+    {
+      "path": "cpu/CPU.20261107.071234.4624.0.001.cpuprofile",
+      "bytes": 272070,
+      "sha256": "f703fd35cd74396fcd465ef8ccca13946929bbf0de408ae5049ddfd06d18baa8"
+    },
+    {
+      "path": "cpu/CPU.20261107.071234.4632.0.001.cpuprofile",
+      "bytes": 294279,
+      "sha256": "9b57b6d04092799e047ef6929a242535fd21500ec2cf67689e735a591230088c"
+    },
+    {
+      "path": "cpu/CPU.20261107.071234.4642.0.001.cpuprofile",
+      "bytes": 270323,
+      "sha256": "403b44fc0599662c1a9877007796aa6172226b2b9c9b334b92788c067c94bbc6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071234.4650.0.001.cpuprofile",
+      "bytes": 240809,
+      "sha256": "d85e9fef71d7f74b414eae103edd44f0a793c19df850300798726243982463f8"
+    },
+    {
+      "path": "cpu/CPU.20261107.071235.4660.0.001.cpuprofile",
+      "bytes": 242115,
+      "sha256": "e309e73324c82f106a42f4148e40117845de3e3fad5d39fc405eb9c47abf638c"
+    },
+    {
+      "path": "cpu/CPU.20261107.071235.4668.0.001.cpuprofile",
+      "bytes": 227691,
+      "sha256": "e29b60e69eae2d8196f0d653c6d9c4e9e1021cd35a90f7366ae39cf1c2b8f24d"
+    },
+    {
+      "path": "cpu/CPU.20261107.071235.4678.0.001.cpuprofile",
+      "bytes": 229704,
+      "sha256": "67f3ca4d39be5fa5930659b11a4c62a26b423c2c278c34818c4f37d007aff331"
+    },
+    {
+      "path": "cpu/CPU.20261107.071235.4686.0.001.cpuprofile",
+      "bytes": 216794,
+      "sha256": "d8ec7805461b792cdf07159c39b2d2a412d6ed0eac02a10caddb5b6bc6abb177"
+    },
+    {
+      "path": "cpu/CPU.20261107.071236.4704.0.001.cpuprofile",
+      "bytes": 329705,
+      "sha256": "64c0a9be83b470e1fe1b48150dfec222b76f21e83ff482ff032a657ac89ba6b6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071236.4715.0.001.cpuprofile",
+      "bytes": 262363,
+      "sha256": "565216e30070c6d5f4be9d91126a52904ff83dd7eeea85a7088762aa2aa0fbfe"
+    },
+    {
+      "path": "cpu/CPU.20261107.071236.4723.0.001.cpuprofile",
+      "bytes": 254811,
+      "sha256": "d874fb7a0633585606dc7e46c705860b35a3de2125751c6f6a02fef6acf047f7"
+    },
+    {
+      "path": "cpu/CPU.20261107.071237.4733.0.001.cpuprofile",
+      "bytes": 270364,
+      "sha256": "2eb04fbe3d1b5116365b798f985df82899ef39fef617264074d2a7497b32f6af"
+    },
+    {
+      "path": "cpu/CPU.20261107.071237.4741.0.001.cpuprofile",
+      "bytes": 278251,
+      "sha256": "2bd8ae69ef9cc821d7a103d82e6a20fcd0a1889a6148c734c4215b3a7ce4d200"
+    },
+    {
+      "path": "cpu/CPU.20261107.071237.4752.0.001.cpuprofile",
+      "bytes": 238203,
+      "sha256": "591786c1c8137dcc96ddad04bdd2e67098946646bf28221ada635e33bd0f84c5"
+    },
+    {
+      "path": "cpu/CPU.20261107.071237.4760.0.001.cpuprofile",
+      "bytes": 233376,
+      "sha256": "0a709f948f8240ea001f589c8117498ec7ba26b62b1aa43d5710bddba57408ff"
+    },
+    {
+      "path": "cpu/CPU.20261107.071238.4770.0.001.cpuprofile",
+      "bytes": 242020,
+      "sha256": "53431dcd49bf2e345e95e088c100096b405663c84c128649d3811ae7a6c56463"
+    },
+    {
+      "path": "cpu/CPU.20261107.071238.4778.0.001.cpuprofile",
+      "bytes": 257575,
+      "sha256": "f8e8867ded8bcc91a29f1c94f0856deedd3b7050d2da7cae5e0f1541d012db31"
+    },
+    {
+      "path": "cpu/CPU.20261107.071238.4788.0.001.cpuprofile",
+      "bytes": 216015,
+      "sha256": "0b31cbe9d062a5ba14d1621ef2cceb28414654e3b1176eeb4cdf84cb99f63a59"
+    },
+    {
+      "path": "cpu/CPU.20261107.071238.4796.0.001.cpuprofile",
+      "bytes": 218191,
+      "sha256": "b315f2e1d6c183be7876006acdef54188760b3a86d04cd86faf4b5a92762a52b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071239.4806.0.001.cpuprofile",
+      "bytes": 284727,
+      "sha256": "1db95f339a850378fc683863acf54cc14c117f0f51fffb519d37c2e0010fe32c"
+    },
+    {
+      "path": "cpu/CPU.20261107.071239.4824.0.001.cpuprofile",
+      "bytes": 267710,
+      "sha256": "9fd8a1d1eb9ae97ba6a4983d76dd3baba399bfae849db5d7c7b1248931bf42a3"
+    },
+    {
+      "path": "cpu/CPU.20261107.071239.4833.0.001.cpuprofile",
+      "bytes": 281461,
+      "sha256": "2693c8dc2a5ad9f3d0ca88dff8ac63cc7d47deb97f246ff192f505e13a183285"
+    },
+    {
+      "path": "cpu/CPU.20261107.071240.4842.0.001.cpuprofile",
+      "bytes": 268766,
+      "sha256": "0e2a38a11e153545e052e97f797fb0948edfb0b80fb9d2629a68cdf3bcce363e"
+    },
+    {
+      "path": "cpu/CPU.20261107.071240.4851.0.001.cpuprofile",
+      "bytes": 267146,
+      "sha256": "951db94f135d6ac4a359ae2480beae9767f4af80facd45332747c742d12a18fc"
+    },
+    {
+      "path": "cpu/CPU.20261107.071240.4860.0.001.cpuprofile",
+      "bytes": 232670,
+      "sha256": "bc25874aff9bdcb2af84c77a769ae089b6e05077a7067476b29e6ecb03cbdc5b"
+    },
+    {
+      "path": "cpu/CPU.20261107.071241.4869.0.001.cpuprofile",
+      "bytes": 262937,
+      "sha256": "562fd941b7f461aa4cb7f32512960036c1c0f943bf59282dd4194854584d3d26"
+    },
+    {
+      "path": "cpu/CPU.20261107.071241.4877.0.001.cpuprofile",
+      "bytes": 234500,
+      "sha256": "16d6244e74654f8bca553321e9520773c75207419f199de1e8959e788b83d509"
+    },
+    {
+      "path": "cpu/CPU.20261107.071241.4887.0.001.cpuprofile",
+      "bytes": 234198,
+      "sha256": "bdd974c457e723bcf666b4899430da78e918016420829910b7d34187f2e31494"
+    },
+    {
+      "path": "cpu/CPU.20261107.071241.4895.0.001.cpuprofile",
+      "bytes": 225032,
+      "sha256": "f07789efeb3fbfd40cb606ba99d1c9a0851ef60b3ca972f584aa13249ae4539a"
+    },
+    {
+      "path": "cpu/CPU.20261107.071242.4905.0.001.cpuprofile",
+      "bytes": 228827,
+      "sha256": "c24b20a8c298fd4056b945873e210058d8da45e5ba30d1d8dccdec95db0a5be6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071242.4912.0.001.cpuprofile",
+      "bytes": 356006,
+      "sha256": "b849e620ee5b26c133e8e97e16dd447dc68848a798794c3cd2662dbc2cbd2645"
+    },
+    {
+      "path": "cpu/CPU.20261107.071242.4923.0.001.cpuprofile",
+      "bytes": 297164,
+      "sha256": "90df090ecebebccfb2b11cfbd4bc85b3fb72b9d3b6a349a3be9c19f3ce5e7426"
+    },
+    {
+      "path": "cpu/CPU.20261107.071242.4932.0.001.cpuprofile",
+      "bytes": 327929,
+      "sha256": "b34117ed817d202b26c6570059cebba833830204009a3dbb81dcb72b099b8e14"
+    },
+    {
+      "path": "cpu/CPU.20261107.071243.4941.0.001.cpuprofile",
+      "bytes": 243917,
+      "sha256": "e2f8c10ac65fad5964ca9737f4aa0729cb0e7fffb3f08d732eb365ffa82cc7ec"
+    },
+    {
+      "path": "cpu/CPU.20261107.071243.4950.0.001.cpuprofile",
+      "bytes": 258411,
+      "sha256": "3ff2179c7f508788d9dca557c625970fb64dffb94998e360df0ec6d4af715e45"
+    },
+    {
+      "path": "cpu/CPU.20261107.071243.4958.0.001.cpuprofile",
+      "bytes": 238984,
+      "sha256": "935d81ba6f6b5d0e85891ddea591fcec344297d0c48ac2da8a8b9cc1037e20e2"
+    },
+    {
+      "path": "cpu/CPU.20261107.071244.4968.0.001.cpuprofile",
+      "bytes": 246392,
+      "sha256": "15dffe9f9491506a6c3590024518225bc1af9892f04710bb938ad83c9759c4e0"
+    },
+    {
+      "path": "cpu/CPU.20261107.071244.4976.0.001.cpuprofile",
+      "bytes": 251771,
+      "sha256": "b71670ee80f4d280212d3338ad0a8ced621fe673975d00b54e130ccf96f87e96"
+    },
+    {
+      "path": "cpu/CPU.20261107.071244.4986.0.001.cpuprofile",
+      "bytes": 219594,
+      "sha256": "f4a4542c557951d57daaaa3e024271b3359c65f9762fc93772ffff6684116c5f"
+    },
+    {
+      "path": "cpu/CPU.20261107.071244.4994.0.001.cpuprofile",
+      "bytes": 236099,
+      "sha256": "8d9fcb30a200604fe19c6f4b35e9f4f44ec186d450ef232d327ee2b3ae9e5af6"
+    },
+    {
+      "path": "cpu/CPU.20261107.071245.5004.0.001.cpuprofile",
+      "bytes": 264450,
+      "sha256": "320a6944c7040f83719e5d5541fe2f411e6579cb2c73d65305b39042ef224c4f"
+    },
+    {
+      "path": "cpu/CPU.20261107.071245.5012.0.001.cpuprofile",
+      "bytes": 219424,
+      "sha256": "2baecb3e829308e59c4253559b1efa7def61a6b71fecb56c3ca97cc37ddd35cf"
+    },
+    {
+      "path": "plain-after-report.json",
+      "bytes": 1097807,
+      "sha256": "2af19287f68259daecc13649b2eb7ceb55d408e209ef0d953525a99eb8123062"
+    },
+    {
+      "path": "plain-after.log",
+      "bytes": 19574,
+      "sha256": "e2b0fcfb7da98e36f449b77b05d501050a41bd05662aec8086e4688faca6fd8c"
+    },
+    {
+      "path": "plain-before-report.json",
+      "bytes": 1097841,
+      "sha256": "7aee10caf838fdcf50fbb9d9a8782221a75da94a51f1c4451fbf93645af718d2"
+    },
+    {
+      "path": "plain-before.log",
+      "bytes": 19575,
+      "sha256": "a00c2dc89da1c2c86ecd3759c64029f2936af2116cdc4adff383b75b0dec2f9f"
+    },
+    {
+      "path": "quod-summary.json",
+      "bytes": 1254,
+      "sha256": "9cfb347f4c8757c22ee2b292c255725c4dd54965a59dba5efb145686dc178f24"
+    },
+    {
+      "path": "recorded-report.json",
+      "bytes": 1097783,
+      "sha256": "456eeedd15e3300441e679b2c5227b1039d36e9558cc1f17bc847d738e84bf56"
+    },
+    {
+      "path": "recorded.log",
+      "bytes": 22455,
+      "sha256": "d3638957aeefe52290e76d4b1fcac8fdaa85ddc234c5840fe388479ce06e0e11"
+    },
+    {
+      "path": "result.json",
+      "bytes": 22078,
+      "sha256": "972570c61f3244379c79f6c984b276b25d542952b7fbec5e271da68d1fbfe9ab"
+    },
+    {
+      "path": "times.json",
+      "bytes": 782,
+      "sha256": "623e831cd2da5b4eb379279982f6f602475bed7f581c0f5dd4299c5f6ed37ba6"
+    }
+  ],
+  "logSha256": "bc174915e3ed1c87db8237ba1a9d7891e9927a9f24823f4e63ac0a61f3d25763",
+  "limitations": [
+    "Profiler overhead is included only on the recorded side; this is one ordered same-runner triplet, not a causal estimate or job benchmark.",
+    "CPU samples cover the 116 collected profiles; their count is not proof of full worker or process coverage.",
+    "Inclusive frame costs overlap and must not be added or presented as removable wall time.",
+    "Three signed sample deltas totaling -9 microseconds were preserved in the aggregation, not clamped.",
+    "No replay, narrower input key or production deployment is enabled by this profile."
+  ]
+}
