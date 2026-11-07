@@ -2595,3 +2595,49 @@ promotions or audits, and the last full-window gap remains 630 runner-seconds.
 The next ownership check must cover ordinary access to channel state before
 and between reads, including an initially empty buffer list retained by
 application code; empty boundaries alone do not exclude that earlier alias.
+
+## Channel field reads before and between callbacks
+
+`b68eef3` demonstrates why empty read boundaries do not establish raw-byte
+isolation. The fixture retains the channel's empty buffer list before a
+complete packet arrives. Node later appends the packet to that same array,
+then replaces the channel's list as it decodes the messages. The fixture's
+old array still contains the packet and can be copied after both messages
+have been prepared. It changes no parser, getter or native method. Plain
+and observed execution preserve the same values, ordering and copied bytes.
+Both read boundaries remain empty, and the earlier guard reports available.
+The [regression-first gate](https://github.com/pango07/quod/actions/runs/42348128742)
+fails exactly this case: 89 of 90 tests pass. Replay eligibility stays false.
+
+`453db88` adds a native data-field reader for object values and exact Symbol
+keys. It retains value identity, ordinary data descriptors, inherited reads
+and writes, and detects callback replacement even if the old value is put
+back. Default admission still rejects native owners; explicit host admission
+requires the trusted caller to establish origin and absence of access checks.
+That option is not an ownership certificate. The [native gate](https://github.com/pango07/quod/actions/runs/42348425791)
+passes all 32 tests in 2.443 seconds, including real Node process and IPC
+fields. This uses the pinned [V8 native-data-property API](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/include/v8-object.h).
+
+`483803e` installs that reader on the channel's buffer list, byte count and
+buffering flag before the first read. It obtains the channel and parser from
+the pinned `_disconnect` closure and the two exact Symbol identities from
+the pinned parser. It does not discover the production keys by descriptions.
+The trusted caller admits this inspected Node channel to the native helper.
+The guard suspends its readers during the checked native callback and
+reinstalls them before the callback returns to application code. A field
+read outside that interval or a replaced reader persistently rejects the
+evidence. Cleanup restores descriptors without replacing application writes.
+
+The [integrated focused gate](https://github.com/pango07/quod/actions/runs/42348686745)
+passes all 90 tests in 31.801 seconds, including the formerly failing array
+alias. `0a957f2` adds aliases obtained through a property descriptor and
+between two separate messages, plus full-workload assertions that every
+read suspends and reinstalls all three field readers. Its runtime is the
+same as the focused gate; the additional cases are in the full gate's
+preflight suite.
+
+This closes the demonstrated post-installation field-access path. It does
+not prove absence of pre-installation aliases, every allocator or native
+observation channel, complete startup integrity, or parent-side effects.
+The guard remains diagnostic, with replay eligibility and complete ownership
+false. It does not change the published Action or establish new savings.
