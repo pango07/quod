@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import {spawnSync} from 'node:child_process';
 
 const mode = process.env.INCREMENTAL_ARM;
@@ -37,6 +38,8 @@ if (phase === 'changed') {
 }
 const report = {schema: 'quod-incremental-ci-v1', mode, phase, source: process.env.GITHUB_SHA,
   runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
+  host: {cpu: os.cpus()[0]?.model, cores: os.cpus().length, memoryBytes: os.totalmem(),
+    imageVersion: process.env.ImageVersion, node: process.version},
   compilerStateBefore: before, nextStateBefore: nextBefore, commands: [], status: 'running'};
 const commands = ['npm ci', 'npm run lint', 'npx next typegen && npx tsc --noEmit',
   'node scripts/vitest-quod.mjs', 'npm run build'];
@@ -59,6 +62,10 @@ try {
     report.changedOutputPresent = files.some(file => fs.readFileSync(path.join(server, file), 'utf8').includes(marker));
     assert.equal(report.changedOutputPresent, true, 'build returned stale layout metadata');
   }
+  const diff = spawnSync('git', ['diff', '--name-only', '-z'], {encoding: 'utf8'});
+  assert.equal(diff.status, 0);
+  assert.deepEqual(diff.stdout.split('\0').filter(Boolean), phase === 'changed' ? ['cloud/app/layout.tsx'] : [],
+    'native pipeline unexpectedly modified tracked source');
   report.status = 'success';
 } finally {
   fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
