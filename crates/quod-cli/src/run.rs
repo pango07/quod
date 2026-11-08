@@ -759,16 +759,19 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     if args.diagnose_inputs {
         let diagnostic_start = Instant::now();
         let entries = tree.iter().collect::<Vec<_>>();
-        let input_tree = Hash::of(&quod_cas::canonical_json(&entries)?);
+        let tree_json = quod_cas::canonical_json(&entries)?;
+        let input_tree = Hash::of(tree_json.as_bytes());
         let compared = compared_only(&without_forbidden(spec.profile(), &result), &ignore);
+        let outputs = quod_cas::canonical_json(&compared.outputs)?;
+        let root_outputs = quod_cas::canonical_json(&compared.root_outputs)?;
         let diagnostic = serde_json::json!({
             "v": 1,
             "input_tree": input_tree,
             "manifest": &ex.manifest,
             "stdout": compared.stdout,
             "stderr": compared.stderr,
-            "outputs": Hash::of(&quod_cas::canonical_json(&compared.outputs)?),
-            "root_outputs": Hash::of(&quod_cas::canonical_json(&compared.root_outputs)?),
+            "outputs": Hash::of(outputs.as_bytes()),
+            "root_outputs": Hash::of(root_outputs.as_bytes()),
         });
         let bytes = quod_cas::canonical_json(&diagnostic)?;
         anyhow::ensure!(bytes.len() <= 8 << 20, "input diagnostic exceeded 8 MiB");
