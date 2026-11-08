@@ -1,5 +1,11 @@
 # Cold preparation overlap
 
+**Decision: retain as an experiment; do not adopt the overlap optimization.**
+Correctness validation passed, but the final control showed no useful cold
+performance win. Routine repository CI now uses native fallback through
+[PR #10](https://github.com/pango07/quod/pull/10); this branch preserves the
+client experiment and its reproduction controls.
+
 The observed Cloud comparison at `fa321015` took 175 seconds through Quod
 and 100 seconds plain. Its three commands all missed. Lint accounted for
 44 seconds of the difference: the command itself ran for 8.7 seconds, but
@@ -57,3 +63,65 @@ reads, frame, complete input trees and compared outputs. Negative controls
 reject content, mode, path, frame, output, key, image and validity changes.
 Opt-in `--diagnose-inputs` writes bounded metadata and hashes into private
 state; no file contents or environment values are exported.
+
+## Validated result
+
+[Gate 42518353307](https://github.com/pango07/quod/actions/runs/42518353307),
+attempt 1 at `53938cc01e8f23dfee077348bb6dbc177884f912`, passed seven
+negative-control tests, the CAS and CLI checks, format and Clippy, the
+experimental release build, eight controlled lint executions, route
+generation/typecheck, all 496 Cloud tests and the native production build.
+The entire input tree, compared outputs, keys, images and positive reads
+agreed; every actual manifest matched its input tree. Extra validated
+absence observations remained in their original manifests.
+
+These are process-wall medians from two observations per mode/state on
+one runner, with observe mode executing the command every time:
+
+| Quod state | Serial preparation | Overlapped preparation |
+| --- | ---: | ---: |
+| Fresh | 20.197s | 20.601s |
+| Reused | 10.752s | 10.580s |
+
+The two plain lint observations bracketing the control were 7.494s and
+6.946s. In the fresh serial control, execution itself took 7.469s and the
+remaining process overhead was 12.728s. Checkout import took 5.655s and
+sealing 3.999s; fingerprint/platform pinning took 0.699s and Cloud metadata
+registration 0.303s. Diagnostic metadata capture added about 0.097s and is
+included in wall time. Some phases overlap or contain subphases, so this
+is not an additive phase accounting table.
+
+Cold overlap was 0.403s slower in this control; the reused-state difference
+was only 0.172s faster. An earlier control had a small cold improvement,
+so there is no repeatable performance justification for shipping this
+change. The original 28.6s setup spike did not recur; the old aggregate
+timing does not identify its exact cause. This control proves neither
+fresh-runner replay nor net whole-job savings.
+
+## Immediate change and next design
+
+The separately released native fallback at main `59e7549` removes Quod
+installation, environment pinning, checkout import, sealing and recording
+from routine pushes and pull requests while reuse is unproven. Every
+normal check command remains intact; explicit manual Quod recording and
+matched comparisons remain available. Both PR and main native jobs passed
+all 496 tests and the build in 112s complete job lifetimes. These are
+unpaired observations; no difference against the old 175s job is claimed.
+
+The next substantive design should make the normal path a cheap reuse
+check, with all actual observer/training costs accounted for:
+
+- Decline acceleration early when there is no usable candidate or runtime
+  contract. Execute natively and record the bypass reason without claiming
+  a replay. A negative hint may skip acceleration; it grants no authority.
+- On a candidate, validate its actual recorded files, listings, symlinks,
+  modes and absence states before replay, under the existing receipt and
+  trust rules. Avoid importing unrelated workspace contents on that path.
+- Establish immutable runtime and dependency snapshots once under a
+  defined filesystem-metadata contract, then reuse them. A direct
+  copy-to-hardlink substitution changes observable metadata and needs
+  explicit treatment before adoption; read-only binding alone is not
+  enough to establish equivalence.
+- Keep learning on an explicit bounded budget. Report its full compute
+  cost and require repeatable matched whole-job wins before enabling an
+  observer path for routine hosted builds.
