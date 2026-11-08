@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiUnavailableError, type RepoDetail, type TestRunSummary } from "@/lib/api/types";
 import { sampleTestRuns, summaryOnly } from "@/lib/api/fixture-tests";
 import { FixtureCloudApi } from "@/lib/api/fixture";
+import type { ObservedCiComparisons } from "@/lib/observed-ci-comparisons";
 import RepoPage from "./page";
 
 const mocks = vi.hoisted(() => ({ getRepo: vi.fn(), getActivity: vi.fn(), listTestRuns: vi.fn(), refresh: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: () => mocks }));
+vi.mock("@/lib/observed-ci-comparisons", () => ({ observedCiComparisons: async (): Promise<ObservedCiComparisons> => ({ visible: false, available: true, inspectedRuns: 0, pairs: [] }) }));
 vi.mock("@/lib/dal", () => ({ requireTeam: async () => ({ team: { slug: "quodci" } }) }));
 vi.mock("@/lib/ui", () => ({ plainUi: async () => true }));
 vi.mock("@/components/live/parts", () => ({ LiveRefresh: (props: unknown) => (mocks.refresh(props), null), NowRunning: () => null }));
