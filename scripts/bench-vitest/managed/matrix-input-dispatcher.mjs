@@ -6,7 +6,8 @@ import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {fileURLToPath} from 'node:url'
 import {MATRIX_CANDIDATE_POLICY, selectMatrixCandidates} from './matrix-candidates.mjs'
-import {resolveMatrixCandidateProfile, selectMatrixProfileCandidates} from './matrix-candidate-profiles.mjs'
+import {resolveMatrixCandidateProfile, selectMatrixProfileCandidates,
+  PROPERTY47_CANDIDATE_PROFILE, PROPERTY47_CANDIDATE} from './matrix-candidate-profiles.mjs'
 import {createManagedExecutor} from './executor.mjs'
 import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY,
   canonicalReceiptJSON as canonicalManagedJSON} from './receipt.mjs'
@@ -42,10 +43,14 @@ function supported(data) {
  * The complete current execution ledger independently validates every receipt. */
 export async function dispatchManagedInputMatrix({project: projectArg, out: outArg, epoch = 1700000000000, seed = 42,
   env = {NODE_ENV: 'test'}, control = false, suiteFiles, candidateProfile = MATRIX_CANDIDATE_POLICY,
+  coldOverlap = false,
   lookup, record, publish} = {}) {
   assert(projectArg && outArg, 'explicit research project/output required')
   assert(Number.isSafeInteger(epoch) && epoch >= 0 && Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffffffff)
   assert.equal(typeof control, 'boolean')
+  assert.equal(typeof coldOverlap, 'boolean', 'cold overlap must be a primitive boolean')
+  if (coldOverlap) assert([PROPERTY47_CANDIDATE_PROFILE, MATRIX_CANDIDATE_POLICY].includes(candidateProfile) && suiteFiles === undefined,
+    'cold overlap requires a closed candidate profile and complete original selection')
   for (const callback of [lookup, record, publish]) assert(callback === undefined || typeof callback === 'function')
   canonicalManagedJSON(env)
   assert(env && !Array.isArray(env) && [Object.prototype, null].includes(Object.getPrototypeOf(env)) &&
@@ -74,6 +79,37 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
   let suite, stickyManagedFailure = false, native, nativePolicy, admissionFailure, observedNativeFailure = false
   let runMatrixNativeBatch, compareManagedMatrixStates, logicalDocument
   save()
+  let nativeOnce, overlapPolicy, managedPool, makeManagedPool
+  const overlapEvidence = () => {
+    if (!nativeOnce) return
+    result.coldOverlap.nativeOnce = nativeOnce.snapshot()
+    write(path.join(out, 'native-once.json'), result.coldOverlap.nativeOnce)
+  }
+  const reserveNative = requestJSON => {
+    const settlement = nativeOnce.start(requestJSON)
+    const file = path.join(out, 'native-once-request.json')
+    if (!fs.existsSync(file)) fs.writeFileSync(file, requestJSON, {flag: 'wx'})
+    else assert.equal(fs.readFileSync(file, 'utf8'), requestJSON, 'reserved native request changed')
+    return settlement
+  }
+  const poolEvidence = () => {
+    if (!managedPool) return
+    result.coldOverlap.managedPool = managedPool.snapshot()
+    write(path.join(out, 'managed-pool.json'), result.coldOverlap.managedPool)
+  }
+  const ownedNative = async request => {
+    // Match the ordinary adapter's optional-field omission without admitting
+    // non-JSON values into the synchronously frozen once request.
+    const frozen = Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined))
+    reserveNative(canonicalManagedJSON(frozen))
+    const settlement = await nativeOnce.join()
+    overlapEvidence()
+    if (settlement.status === 'rejected') throw settlement.reason
+    return settlement.value
+  }
+  // Once reserved, the native child is joined even when result/evidence writes
+  // throw out of either admission or final-report handling. No retry is made.
+  try {
   try {
     // This module's static imports use only builtins. Initialize and pin the
     // tool epoch before preparation/planner/native helpers load the compiler.
@@ -83,6 +119,25 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     process.env.NODE_ENV ??= 'test'
     const compile = await createCertifiedManagedCompiler({project})
     const profile = resolveMatrixCandidateProfile(candidateProfile)
+    if (coldOverlap) {
+      const {createNativeOnce} = await import('./native-once.mjs')
+      const {runOwnedMatrixNativeBatch, ownedMatrixNativePolicy} = await import('./owned-native-adapter.mjs')
+      ;({createManagedTaskPool: makeManagedPool} = await import('./managed-task-pool.mjs'))
+      nativeOnce = createNativeOnce({run: requestJSON => runOwnedMatrixNativeBatch(JSON.parse(requestJSON))})
+      result.coldOverlap = {enabled: true, policy: null, startedBeforeCandidate: false}
+      overlapPolicy = {schema: 'quod-owned-cold-overlap-policy-v1-research',
+        scheduling: 'all-cold only after every fence, execution key and refresh decision; default108 fixed4 or property47 fixed1; warm/mixed/refresh serial; every started owner joined on every exit',
+        schedulingSourceSha256: sha(fs.readFileSync(self)),
+        ownedAdapterSha256: sha(fs.readFileSync(path.join(here, 'owned-native-adapter.mjs'))),
+        nativeChildSha256: sha(fs.readFileSync(path.join(here, 'matrix-native.mjs'))),
+        nativeOnceSha256: sha(fs.readFileSync(path.join(here, 'native-once.mjs'))),
+        managedPoolSha256: sha(fs.readFileSync(path.join(here, 'managed-task-pool.mjs'))),
+        coldConcurrency: profile.label === MATRIX_CANDIDATE_POLICY ? 4 : 1,
+        listenerHelperSha256: sha(fs.readFileSync(path.join(here, 'inherited-listener-executor.mjs'))),
+        listenerMode: 'inherited-linux-fd3-control4-v1-research', nativeWatchdogMs: 300000,
+        nativeProcessPolicy: ownedMatrixNativePolicy()}
+      result.coldOverlap.policy = overlapPolicy
+    }
     const {prepareManagedMatrix} = await import('./preparation.mjs')
     const planner = await import('./matrix-planner.mjs')
     const {createManagedMatrixPlan} = planner
@@ -94,6 +149,9 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     write(path.join(out, 'matrix-plan.json'), plan)
     const candidates = new Set((profile.label === MATRIX_CANDIDATE_POLICY ? selectMatrixCandidates(suite.selected)
       : selectMatrixProfileCandidates(suite.selected, profile.label)).map(row => row.instanceId))
+    if (coldOverlap) assert(suite.selected.length === 120 &&
+      candidates.size === (profile.label === MATRIX_CANDIDATE_POLICY ? 108 : 1) && candidates.has(PROPERTY47_CANDIDATE.instanceId),
+      'cold overlap requires all original120 and the exact closed candidate roster')
     if (profile.label !== MATRIX_CANDIDATE_POLICY) {
       result.candidatePolicy = profile.label
       result.candidateProfile = profile
@@ -105,6 +163,19 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       reason: candidates.has(row.instanceId) ? 'candidate not yet admitted' : 'outside reviewed research candidate selection'}))
     const phaseRows = new Map()
     const onPhase = phase => {
+      if (coldOverlap && phaseRows.has(phase.name)) {
+        // The executor has already closed its child and delivered actual data.
+        // Latch known failure before any result mutation or fallible save; a
+        // later callback/write failure must not let ordinary success erase it.
+        const data = phase.data
+        if (complete(data) && Array.isArray(data.boundary.unsupported) && data.boundary.unsupported.length === 0) {
+          stickyManagedFailure ||= data.ok !== true
+          if (supported(data)) {
+            stickyManagedFailure ||= data.rows.some(test => test.state === 'fail')
+            stickyManagedFailure ||= data.files.some(file => file?.state === 'fail' || Array.isArray(file?.errors) && file.errors.length > 0)
+          }
+        }
+      }
       result.phases.push({name: phase.name, seconds: phase.seconds, responseSha256: phase.responseSha256})
       const row = phaseRows.get(phase.name)
       if (row) {row.workerSeconds = phase.seconds; row.responseSha256 = phase.responseSha256}
@@ -114,7 +185,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     // current-host class; every execute() still starts a fresh independent
     // workerd process and verifies its actual binary bytes again.
     const preflightExecutor = createManagedExecutor({out, watchdogMs: 30000, onPhase})
-    let propertyExecutor
+    let propertyExecutor, candidateExecutor
     const preflightBuild = await compile('preflight.mjs', base)
     write(path.join(out, 'preflight-build.json'), {...preflightBuild, bundle: undefined, options: base})
     const preflight = await preflightExecutor.execute('preflight', preflightBuild.bundle)
@@ -122,7 +193,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       preflight.checks.every(row => row.pass === true) && complete(preflight), 'private current-host boundary preflight failed')
     const nativeFingerprintSha256 = sha(canonicalManagedJSON({preflightIdentity: preflightBuild.identitySha256,
       inventory: preflight.boundary.inventory, symbols: preflight.boundary.symbolInventory}))
-    const adapterSha256 = sha(fs.readFileSync(path.join(here, 'matrix-native.mjs')))
+    const adapterSha256 = sha(fs.readFileSync(path.join(here, coldOverlap ? 'owned-native-adapter.mjs' : 'matrix-native.mjs')))
     nativePolicy = {adapterSha256, nodeExecutableSha256: preflightExecutor.runtimePolicy.supervisor.nodeExecutableSha256,
       nodeVersion: process.version, vitestVersion: '5.0.0', host: preflightExecutor.host}
     const supervisorPolicy = {receiptValidatorSha256: sha(fs.readFileSync(path.join(here, 'matrix-receipt.mjs'))),
@@ -131,6 +202,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       inputValidatorSha256: sha(fs.readFileSync(path.join(here, 'resolved-compile-certificate.mjs'))),
       candidateEnvelopeSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-envelope.mjs'))),
       compilationPolicy: BATCH_POLICY,
+      ...(coldOverlap ? {overlapPolicy} : {}),
       ...(profile.label === MATRIX_CANDIDATE_POLICY ? {} : {candidateProfile: profile,
         candidateProfileSelectorSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-profiles.mjs')))})}
     result.nativeFingerprintSha256 = nativeFingerprintSha256; result.host = preflightExecutor.host
@@ -150,7 +222,10 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       const options = {...base, vitest: candidate.config, file: '/project/' + candidate.file,
         providedContext: candidate.providedContext, ...(candidate.zodAlias ? {zodAlias: candidate.zodAlias} : {})}
       const executor = candidate.file.endsWith('/stream.property.test.ts')
-        ? (propertyExecutor ||= createManagedExecutor({out, watchdogMs: 180000, onPhase})) : preflightExecutor
+        ? (propertyExecutor ||= createManagedExecutor({out, watchdogMs: 180000, onPhase,
+          ...(coldOverlap ? {listenerMode: overlapPolicy.listenerMode} : {})})) : coldOverlap
+          ? (candidateExecutor ||= createManagedExecutor({out, watchdogMs: 30000, onPhase, listenerMode: overlapPolicy.listenerMode}))
+          : preflightExecutor
       const policy = {runtimePolicy: {...executor.runtimePolicy, nativeFingerprintSha256},
         supervisorPolicy, host: executor.host, nativePolicy}
       const candidateKey = makeMatrixCandidateKey({prepared: candidate, options, ...policy})
@@ -258,6 +333,52 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       }
       save()
     }
+    const allCold = coldOverlap && cold.length === candidates.size && contexts.size === candidates.size &&
+      ![...contexts.values()].some(context => context.replay)
+    if (allCold) {
+      assert(result.compilationBatch.completed === true && result.compilationBatch.requests === candidates.size &&
+        result.compilationBatch.diagnostics.fullFences === 2 * candidates.size + 2, 'native overlap preceded the final guarded cold batch')
+      for (const context of contexts.values()) assert(context.built && context.execution &&
+        context.row.executionKey === context.execution.key && !context.refresh,
+        'native overlap preceded complete current execution and refresh decisions')
+      result.coldOverlap.startedBeforeCandidate = true
+      result.coldOverlap.coldReadyMonoMs = performance.now()
+      reserveNative(canonicalManagedJSON({project, out: path.join(out, 'native'), selected: suite.selected,
+        instanceIds: suite.selected.map(row => row.instanceId)}))
+      overlapEvidence(); save()
+    }
+    if (allCold && profile.label === MATRIX_CANDIDATE_POLICY) {
+      managedPool = makeManagedPool({maxConcurrency: 4})
+      const tasks = result.instances.filter(row => row.candidate).map(row => ({id: row.instanceId, async run() {
+        const context = contexts.get(row.instanceId), phaseName = 'managed-' + row.instanceId
+        assert(context?.built && context.execution && !context.replay, 'pool requires every final cold execution before start')
+        row.stage = 'execution'; row.workerEvidenceDirectory = phaseName; result.managedExecutions++; save()
+        phaseRows.set(phaseName, row)
+        let data
+        try {data = await context.executor.execute(phaseName, context.built.bundle)}
+        catch (error) {row.error = errorData(error); row.reason = error.message; throw error}
+        row.workerSettledMonoMs = performance.now()
+        dataById.set(row.instanceId, data); row.supported = supported(data)
+        row.unsupported = data.boundary?.unsupported || []
+        row.closedFailure = complete(data) && Array.isArray(data.boundary.unsupported) &&
+          data.boundary.unsupported.length === 0 && data.ok !== true
+        stickyManagedFailure ||= row.closedFailure
+        if (row.supported) {
+          const failed = data.ok !== true || data.rows.some(test => test.state === 'fail') ||
+            data.files.some(file => file.state === 'fail' || Array.isArray(file.errors) && file.errors.length > 0)
+          stickyManagedFailure ||= failed
+          row.decision = failed ? 'supported-failure' : data.ok === true ? 'managed' : 'ordinary'
+          row.reason = failed ? 'supported actual managed test failed' : data.ok === true ? null : 'managed file did not pass'
+        } else if (row.closedFailure) {
+          row.decision = 'ordinary'; row.reason = 'sealed managed runner failed'
+        } else row.reason = 'managed boundary unsupported/incomplete'
+        row.stage = 'complete'; save()
+      }}))
+      managedPool.start(tasks)
+      const settlement = await managedPool.join()
+      poolEvidence()
+      if (settlement.status === 'rejected') throw settlement.reason
+    } else {
     // Only after all cold builds are closed can any admitted replay omit its
     // native counterpart. Workers remain fresh, serial and in original order.
     for (const row of result.instances) {
@@ -277,6 +398,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
           row.decision = 'replay'; row.reason = null; row.stage = 'complete'; row.receiptSha256 = checked.receiptSha256
           row.logicalFileState = checked.data.files[0].state; row.logicalFileName = checked.data.files[0].name
           fs.writeFileSync(path.join(directory, 'replayed-response.json'), checked.responseBytes)
+          if (coldOverlap) row.replayMaterializedMonoMs = performance.now()
           dataById.set(row.instanceId, checked.data); result.replayedInstances++; save(); continue
         }
         assert(built && context.execution, 'cold candidate has no final guarded build')
@@ -284,6 +406,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
         row.stage = 'execution'; row.workerEvidenceDirectory = phaseName; result.managedExecutions++; save()
         phaseRows.set(phaseName, row)
         const data = await executor.execute(phaseName, built.bundle)
+        if (coldOverlap) row.workerSettledMonoMs = performance.now()
         dataById.set(row.instanceId, data); row.supported = supported(data)
         row.unsupported = data.boundary?.unsupported || []
         // A closed runner exception can omit reusable rows/files (for example,
@@ -305,9 +428,11 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       } catch (error) {row.error = errorData(error); row.reason = error.message}
       save()
     }
+    }
   } catch (error) {
-    // No native test has run yet. Discard any partial replay decisions and
-    // perform one complete ordinary fallback; never repeat a native failure.
+    if (managedPool) {await managedPool.join(); poolEvidence()}
+    // Discard provisional replay decisions. An opted-in already reserved
+    // native batch is joined by the fallback instead of being started again.
     admissionFailure = errorData(error); result.admissionDeclined = admissionFailure
     for (const row of result.instances) {
       row.decision = 'ordinary'; row.reason = 'research admission declined'
@@ -319,7 +444,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
   try {
     if (!runMatrixNativeBatch) ({runMatrixNativeBatch} = await import('./matrix-native.mjs'))
     const nonhits = suite?.selected.filter(selected => !result.instances.some(row => row.instanceId === selected.instanceId && row.decision === 'replay'))
-    native = await runMatrixNativeBatch({project, out: path.join(out, 'native'), selected: suite?.selected,
+    native = await (coldOverlap && nativeOnce ? ownedNative : runMatrixNativeBatch)({project, out: path.join(out, 'native'), selected: suite?.selected,
       suiteFiles,
       ...(nonhits ? {instanceIds: nonhits.map(row => row.instanceId)} : {})})
     result.native = {...native, data: undefined}; result.nativeSpecsExecuted = native.data?.executed?.length || 0
@@ -420,6 +545,30 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
   }
   result.passed = result.exitCode === 0; result.seconds = (performance.now() - started) / 1000
   save(); return result
+  } catch (error) {
+    if (coldOverlap) {result.error = errorData(error); result.exitCode = 1; result.passed = false}
+    throw error
+  } finally {
+    if (managedPool || nativeOnce) {
+      // Join both independent owners before any fallible evidence I/O. An
+      // unexpected rejected join cannot skip settlement of the other owner.
+      const joins = await Promise.allSettled([managedPool?.join(), nativeOnce?.join()])
+      assert(joins.every(join => join.status === 'fulfilled'), 'owned cleanup join unexpectedly rejected')
+      const settlement = joins[1].value
+      if (settlement) {
+        const actual = settlement.status === 'fulfilled' ? settlement.value : null
+        observedNativeFailure ||= !actual || actual.exitCode !== 0 || actual.timedOut === true || (!actual.skipped &&
+          (actual.data?.completed !== true || actual.data.matched !== true || actual.data.exitCode !== 0 ||
+            actual.data.unhandledErrors.length > 0 || actual.data.failedModules > 0))
+        if (observedNativeFailure) {result.exitCode = 1; result.passed = false}
+      }
+      result.stickyManagedFailure = stickyManagedFailure; result.observedNativeFailure = observedNativeFailure
+      result.seconds = (performance.now() - started) / 1000
+      poolEvidence()
+      overlapEvidence()
+      save()
+    }
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === self) {

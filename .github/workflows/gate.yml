@@ -154,6 +154,202 @@ jobs:
           path: ${{ runner.temp }}/inherited-listener-proof
           retention-days: 7
 
+  benchmark-managed-property47-overlap:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-overlap'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Retain unchanged compiler, reviewed batch API and integration source pins
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/property47-overlap-controls"
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root = Path('scripts/bench-vitest/managed')
+          expected = {
+              'compiler.mjs': 'a87f1f8fafea2e0f1b4a1e299199f5581172a2fe90f59882d3c64eb50f68acaf',
+              'resolved-compile-certificate.mjs': 'f01cd9a55f6eceb913c5b402481fd6b6dd7266191d8182f97ca60f158765c703',
+          }
+          for name, digest in expected.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          PY
+          git rev-parse HEAD > "$RUNNER_TEMP/property47-overlap-controls/source-pin.txt"
+          sha256sum scripts/bench-vitest/managed/compiler.mjs scripts/bench-vitest/managed/resolved-compile-certificate.mjs scripts/bench-vitest/managed/matrix-input-dispatcher.mjs scripts/bench-vitest/managed/matrix-input-dispatcher-fixtures.mjs scripts/bench-vitest/managed/matrix-batch-dispatcher-fixtures.mjs > "$RUNNER_TEMP/property47-overlap-controls/source-sha256.txt"
+      - name: Restore only the exact independently audited legacy ledger data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/bench-vitest/managed/restore-matrix-evidence.py
+          13587034973 ff279ea5b59b359d26985f08f22e0749f9eccbde 42406036816
+          36186785 f8e20f3a68cc3fbec7ce01a5ea90e8b50a1d558cbf08146a7fb049e242adc282
+          "$RUNNER_TEMP/property47-overlap-reference"
+      - run: git fetch --no-tags --depth=1 origin ff279ea5b59b359d26985f08f22e0749f9eccbde
+      - name: Independently recheck all original native names and states
+        run: >-
+          python3 scripts/bench-vitest/managed/matrix-audit.py
+          "$RUNNER_TEMP/property47-overlap-reference" ff279ea5b59b359d26985f08f22e0749f9eccbde
+          --archive "$RUNNER_TEMP/property47-overlap-reference.zip"
+          --run-json "$RUNNER_TEMP/property47-overlap-reference-run.json"
+          --artifacts-json "$RUNNER_TEMP/property47-overlap-reference-artifacts.json"
+          > "$RUNNER_TEMP/property47-overlap-controls/reference-audit.json"
+      - name: Preserve all 152 unchanged ledger checks
+        run: >-
+          node scripts/bench-vitest/managed/matrix-receipt-fixtures.mjs
+          "$RUNNER_TEMP/property47-overlap-reference/_temp/managed-matrix"
+          "$RUNNER_TEMP/property47-overlap-controls/legacy-ledger"
+      - name: Preserve the unchanged 13 cases, 142 dispatcher assertions and 18 proof checks
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-dispatcher-fixtures.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/property47-overlap-controls/dispatcher"
+      - name: Assert exact original dispatcher and proof inventories
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'property47-overlap-controls'
+          for name, count, field in [('legacy-ledger/result.json',152,'passed'), ('dispatcher/result.json',142,'passed'), ('dispatcher/input-proof-controls.json',18,'pass')]:
+              value = json.loads((root / name).read_text())
+              assert value['passed'] is True and len(value['checks']) == count and all(row[field] is True for row in value['checks']), name
+          assert json.loads((root / 'dispatcher/result.json').read_text())['caseCount'] == 13
+          PY
+      - name: Run separate disposable-process batch rollback, refresh and serial execution controls
+        run: >-
+          node scripts/bench-vitest/managed/matrix-batch-dispatcher-fixtures.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/property47-overlap-default-integration"
+      - name: Preserve all 55 original compiler and closed-glob checks
+        run: >-
+          node scripts/bench-vitest/managed/compiler-fixtures/check.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/property47-overlap-controls/compiler"
+      - name: Assert the complete unchanged compiler check count
+        shell: bash
+        run: |
+          python3 - <<'PYCOMPILER'
+          import json, os
+          from pathlib import Path
+          value = json.loads((Path(os.environ['RUNNER_TEMP']) / 'property47-overlap-controls/compiler/result.json').read_text())
+          assert value['originalCheckCount'] == 40 and value['selfGlobCheckCount'] == 15 and len(value['checks']) == 55
+          assert all(row['passed'] is True for row in value['checks'])
+          PYCOMPILER
+      - name: Retain original default source before the opt-only scheduling change
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin 19cad218b51e04866e398d2fb28da2cdb751c302
+          git show 19cad218b51e04866e398d2fb28da2cdb751c302:scripts/bench-vitest/managed/matrix-input-dispatcher.mjs > "$RUNNER_TEMP/property47-overlap-controls/original-dispatcher.mjs"
+          python3 - <<'PYINVERSE'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          root=Path('scripts/bench-vitest/managed');base='19cad218b51e04866e398d2fb28da2cdb751c302'
+          unchanged=['executor.mjs','matrix-native.mjs','inherited-listener-executor.mjs','matrix-input-dispatcher-fixtures.mjs','matrix-batch-dispatcher-fixtures.mjs','property47-profile-probe.mjs','matrix-receipt.mjs','compiler.mjs','resolved-compile-certificate.mjs']
+          hashes={}
+          for name in unchanged:
+              old=subprocess.check_output(['git','show',base+':scripts/bench-vitest/managed/'+name])
+              current=(root/name).read_bytes();assert current==old,name
+              hashes[name]=hashlib.sha256(current).hexdigest()
+          (Path(os.environ['RUNNER_TEMP'])/'property47-overlap-controls/default-source-inverse.json').write_text(json.dumps({'schema':'quod-property47-overlap-default-source-inverse-v1','passed':True,'base':base,'unchanged':hashes},indent=2)+'\n')
+          PYINVERSE
+      - name: Check owned cold108 and property47 overlap while retaining all original120 specifications
+        shell: bash
+        run: |
+          unset ACTIONS_RUNTIME_TOKEN ACTIONS_CACHE_URL ACTIONS_RESULTS_URL ACTIONS_CACHE_SERVICE_V2 ACTIONS_RUNTIME_URL
+          node scripts/bench-vitest/managed/property47-overlap-probe.mjs "$PWD/profile-project" "$RUNNER_TEMP/property47-overlap" "$RUNNER_TEMP/property47-overlap-reference/_temp/managed-matrix"
+      - name: Require the nine property cases, full108 cold/warm pair and tiny ownership failures
+        shell: bash
+        run: |
+          python3 - <<'PYOVERLAP'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'property47-overlap';result=json.loads((root/'result.json').read_text())
+          assert result['passed'] is True and result['actualSdkAuthenticationClaimed'] is False and result['performanceClaimed'] is False
+          assert result['checkCount']==result['expectedCheckCount']==len(result['checks'])==25 and all(row['pass'] is True for row in result['checks'])
+          assert [row['mode'] for row in result['cases']]==['serial-control','cold','hit','refresh','decline-before-start','after-start-write-error','managed-failure','native-failure','managed-failure-write-error']
+          assert len(result['processCases'])==5
+          assert [row['mode'] for row in result['matrixCases']]==['matrix-cold','matrix-hit']
+          childchecks=0
+          for row in result['cases']:
+              value=json.loads((root/row['mode']/'result.json').read_text())
+              assert value['passed'] is True and value['originalSourcesRestored'] is True
+              assert value['checks']==[{'name':name,'pass':True} for name in result['caseInventories'][row['mode']]]
+              childchecks+=len(value['checks'])
+          assert childchecks==56
+          matrixchecks=0
+          for row in result['matrixCases']:
+              value=json.loads((root/row['mode']/'result.json').read_text())
+              assert value['passed'] is True and value['actualSdkAuthenticationClaimed'] is False
+              assert value['checks']==[{'name':name,'pass':True} for name in result['matrixCaseInventories'][row['mode']]]
+              matrixchecks+=len(value['checks'])
+          assert matrixchecks==15
+          PYOVERLAP
+      - name: Retain exact scheduling, ownership and unchanged native child source pins
+        if: always()
+        run: >-
+          sha256sum scripts/bench-vitest/managed/matrix-candidate-profiles.mjs
+          scripts/bench-vitest/managed/property47-overlap-probe.mjs
+          scripts/bench-vitest/managed/matrix-input-dispatcher.mjs
+          scripts/bench-vitest/managed/owned-native-adapter.mjs
+          scripts/bench-vitest/managed/native-once.mjs
+          scripts/bench-vitest/managed/managed-task-pool.mjs
+          scripts/bench-vitest/managed/matrix-native.mjs
+          scripts/bench-vitest/managed/inherited-listener-executor.mjs
+          > "$RUNNER_TEMP/property47-overlap-controls/profile-source-sha256.txt"
+      - name: Bound and hash each evidence role even on failure
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          for role in property47-overlap-controls property47-overlap-default-integration property47-overlap; do
+            if test -d "$RUNNER_TEMP/$role"; then
+              node scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs --bounds "$RUNNER_TEMP/$role" || failed=1
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-overlap-controls
+          path: ${{ runner.temp }}/property47-overlap-controls
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-overlap-default-integration
+          path: ${{ runner.temp }}/property47-overlap-default-integration
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-overlap
+          path: ${{ runner.temp }}/property47-overlap
+          retention-days: 7
+
   benchmark-managed-property47-profile:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-profile'
     permissions:
