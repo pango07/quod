@@ -84,7 +84,7 @@ export function PortalButtons({ team, canEdit }: { team: string; canEdit: boolea
   );
 }
 
-/** The runner price the Overview's money saved is estimated with. Empty: GitHub's Linux 2-core price. */
+/** The team's valuation of runner time, separate from actual compute charges. */
 export function RunnerRateForm({ team, current, custom, canEdit, canSave, defaultRate }: { team: string; current: number; custom: boolean; canEdit: boolean; canSave: boolean; defaultRate: number }) {
   const [state, action, pending] = useActionState(saveRunnerRate.bind(null, team), null as ActionResult);
   const disabled = !canEdit || !canSave;
@@ -92,7 +92,7 @@ export function RunnerRateForm({ team, current, custom, canEdit, canSave, defaul
     <form action={action} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label className="field" style={{ flex: "0 1 220px" }}>
-          Price per runner minute (USD)
+          Value per runner minute (USD)
           <input
             className="input mono"
             name="rate"
@@ -109,9 +109,9 @@ export function RunnerRateForm({ team, current, custom, canEdit, canSave, defaul
         </button>
       </div>
       <p id="rate-help" className="faint" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: "70ch" }}>
-        Leave it empty to use ${defaultRate} per minute, GitHub&apos;s published price for a Linux 2-core runner. Set your own if you use larger runners, self-hosted machines or have a
-        negotiated price.
-        {canSave ? null : " Saving a price isn't set up on this deploy yet, so the default is used."}
+        Leave it empty to use ${defaultRate} per minute as the default valuation rate. Your rate values saved or extra runner time, including on free runners; it does not change actual charges.
+        {" "}Enter more than 0 and at most 1.
+        {canSave ? null : " Your saved rate cannot be read or changed right now; the dashboard's modeled value stays unknown."}
       </p>
       {state ? (
         <p role="status" className={`toast ${state.ok ? "ok" : "err"}`}>

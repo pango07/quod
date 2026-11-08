@@ -13,6 +13,7 @@ import { requireTeam } from "@/lib/dal";
 import { plainUi } from "@/lib/ui";
 import { observedCiComparisons } from "@/lib/observed-ci-comparisons";
 import { CI_COMPARISON } from "@/lib/ci-comparisons";
+import { runnerRate } from "@/lib/team-settings";
 import { formatAgo, formatCount, formatDuration, median, shortSha } from "@/lib/format";
 import { parseStepFilter } from "@/lib/params";
 import { exitLabel, formatSaved, formatSavedMs, legacyRecordingIds, roleLabel, runRole, SAVED_EXPLAINED, suiteLabel, testRunHref } from "@/lib/test-runs";
@@ -24,12 +25,14 @@ const SHOWN = 6;
 export default async function RepoPage({ params, searchParams }: PageProps<"/[team]/[repo]">) {
   const [{ team: slug, repo: repoSlug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
-  const [found, activity, testReports, comparisons] = await Promise.all([
+  const [found, activity, testReports, comparisons, rate] = await Promise.all([
     section(api().getRepo(team.slug, repoSlug)),
     api().getActivity(team.slug, { repo: repoSlug }),
     section(api().listTestRuns(team.slug, { repo: repoSlug, limit: 100 })),
     observedCiComparisons(team, "7d"),
+    runnerRate(team.orgId),
   ]);
+  const valuationRate = rate.canSave ? rate : undefined;
   // quod-server down and GitHub does not know the repo either: say so, do not 404 a repo that may exist.
   if (!found.ok) return <SectionUnavailable s={found} what="This repository" page />;
   const repo = found.value;
@@ -63,7 +66,7 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
         </div>
       ) : null}
       <NowRunning team={team.slug} initial={activity} repo={repo.summary.slug} />
-      {repo.summary.fullName === CI_COMPARISON.repository ? <ObservedCiComparisons data={comparisons} /> : null}
+      {repo.summary.fullName === CI_COMPARISON.repository ? <ObservedCiComparisons data={comparisons} valuationRate={valuationRate} /> : null}
       {!testReports.ok ? <SectionUnavailable s={testReports} what="Test reports" /> : testReports.value === null ? (
         <SectionUnavailable s={{ ok: false, kind: "not-available", message: "Test reports are not supported by this server." }} what="Test reports" />
       ) : null}

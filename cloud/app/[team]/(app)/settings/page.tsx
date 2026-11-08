@@ -74,11 +74,11 @@ export default async function SettingsPage({ params }: PageProps<"/[team]/settin
       <section className="card" aria-labelledby="savings-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }} id="savings">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 id="savings-h" className="h2">
-            Savings estimate
+            Runner time value
           </h2>
           <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: "72ch" }}>
-            The Overview turns the runner minutes Quod saves into money with this price. Now: {rateText(rate.usdPerMinute)}
-            {rate.source === "default" ? " (GitHub's Linux 2-core price)" : " (set by your team)"}.
+            Your rate values runner time in the Overview, Usage and job comparisons, even when GitHub compute is free. This estimate is separate from your GitHub bill.
+            {rate.canSave ? <> Current rate: {rateText(rate.usdPerMinute)}{rate.source === "default" ? " (default valuation rate)" : " (set by your team)"}.</> : " Your runner price is currently unavailable. Modeled values will appear when it can be read."}
           </p>
         </div>
         <RunnerRateForm team={team.slug} current={rate.usdPerMinute} custom={rate.source === "team"} canEdit={admin} canSave={rate.canSave} defaultRate={DEFAULT_USD_PER_MINUTE} />

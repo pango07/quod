@@ -5,12 +5,14 @@ import { ApiUnavailableError, type RepoDetail, type TestRunSummary } from "@/lib
 import { sampleTestRuns, summaryOnly } from "@/lib/api/fixture-tests";
 import { FixtureCloudApi } from "@/lib/api/fixture";
 import type { ObservedCiComparisons } from "@/lib/observed-ci-comparisons";
+import type { RunnerRate } from "@/lib/team-settings";
 import RepoPage from "./page";
 
-const mocks = vi.hoisted(() => ({ getRepo: vi.fn(), getActivity: vi.fn(), listTestRuns: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getRepo: vi.fn(), getActivity: vi.fn(), listTestRuns: vi.fn(), refresh: vi.fn(), comparisons: vi.fn(), runnerRate: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: () => mocks }));
-vi.mock("@/lib/observed-ci-comparisons", () => ({ observedCiComparisons: async (): Promise<ObservedCiComparisons> => ({ visible: false, available: true, inspectedRuns: 0, pairs: [] }) }));
-vi.mock("@/lib/dal", () => ({ requireTeam: async () => ({ team: { slug: "quodci" } }) }));
+vi.mock("@/lib/observed-ci-comparisons", () => ({ observedCiComparisons: mocks.comparisons }));
+vi.mock("@/lib/team-settings", () => ({ runnerRate: mocks.runnerRate }));
+vi.mock("@/lib/dal", () => ({ requireTeam: async () => ({ team: { slug: "quodci", orgId: "org_quodci" } }) }));
 vi.mock("@/lib/ui", () => ({ plainUi: async () => true }));
 vi.mock("@/components/live/parts", () => ({ LiveRefresh: (props: unknown) => (mocks.refresh(props), null), NowRunning: () => null }));
 vi.mock("@/components/rerun-button", () => ({ RerunButton: () => null }));
@@ -29,8 +31,8 @@ const report: TestRunSummary = {
   timing: { wallMs: 93000, selectMs: 10, savedMs: 0, estPlainMs: 200000 },
 };
 
-async function render() {
-  const page = await RepoPage({ params: Promise.resolve({ team: "quodci", repo: "ci-bench" }), searchParams: Promise.resolve({}) });
+async function render(repoSlug = "ci-bench") {
+  const page = await RepoPage({ params: Promise.resolve({ team: "quodci", repo: repoSlug }), searchParams: Promise.resolve({}) });
   return renderToStaticMarkup(page as ReactElement);
 }
 
@@ -39,6 +41,8 @@ beforeEach(() => {
   mocks.getRepo.mockResolvedValue(repo);
   mocks.getActivity.mockResolvedValue({ asOf, jobs: [], simulated: false });
   mocks.listTestRuns.mockResolvedValue([report]);
+  mocks.comparisons.mockResolvedValue({ visible: false, available: true, inspectedRuns: 0, pairs: [] } satisfies ObservedCiComparisons);
+  mocks.runnerRate.mockResolvedValue({ usdPerMinute: 0.24, source: "team", canSave: true } satisfies RunnerRate);
 });
 
 describe("repository Overview test recordings", () => {
@@ -108,5 +112,26 @@ describe("repository Overview test recordings", () => {
     expect(html).toContain("Latest test run");
     expect(html).toContain("Latest step run");
     expect(html).toContain("Step recordings");
+  });
+
+  it("reads the membership-checked org's rate and forwards it to the full-job comparison", async () => {
+    mocks.getRepo.mockResolvedValue({ ...repo, summary: { ...repo.summary, slug: "quod", fullName: "pango07/quod" } });
+    mocks.comparisons.mockResolvedValue({ visible: true, available: true, inspectedRuns: 1, pairs: [{
+      runId: 100, attempt: 1, sha: "a".repeat(40), finishedAt: asOf, runUrl: "https://github.com/pango07/quod/actions/runs/100/attempts/1",
+      candidate: { seconds: 175, url: "https://github.com/pango07/quod/actions/runs/100/job/200" },
+      baseline: { seconds: 100, url: "https://github.com/pango07/quod/actions/runs/100/job/201" }, savedSeconds: -75, cost: "public-standard-free",
+    }] } satisfies ObservedCiComparisons);
+    const html = await render("quod");
+    expect(mocks.runnerRate).toHaveBeenCalledWith("org_quodci");
+    expect(mocks.runnerRate).not.toHaveBeenCalledWith("quodci");
+    expect(html).toContain("175s");
+    expect(html).toContain("100s");
+    expect(html).toContain("$0.3000 extra");
+    expect(html).toContain("0.24");
+    expect(html).toContain("$0.00 each");
+    mocks.runnerRate.mockResolvedValue({ usdPerMinute: 0.006, source: "default", canSave: false } satisfies RunnerRate);
+    const unavailable = await render("quod");
+    expect(unavailable).toContain("Runner price is unavailable");
+    expect(unavailable).not.toContain("$0.3000");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify, formatMoney, formatSpan, mergeRuns, parseRate, plainTime, savingsModel, type TestRunLite } from "./savings";
+import { classify, formatMoney, formatSpan, mergeRuns, parseRate, plainTime, rateText, savingsModel, type TestRunLite } from "./savings";
 
 const T0 = Date.parse("2026-11-01T00:00:00Z");
 const H = 3_600_000;
@@ -144,6 +144,14 @@ describe("words and inputs", () => {
     expect(parseRate("0")).toBeNull();
     expect(parseRate("2")).toBeNull();
     expect(parseRate("abc")).toBeNull();
+  });
+
+  it("displays every stored rate without rounding a valid small rate to zero", () => {
+    expect(rateText(0.006)).toBe("$0.006 per minute");
+    expect(rateText(0.016)).toBe("$0.016 per minute");
+    expect(rateText(0.000001)).toBe("$0.000001 per minute");
+    expect(rateText(0.123456)).toBe("$0.123456 per minute");
+    expect(rateText(1)).toBe("$1 per minute");
   });
 
   it("merges live runs over the server's, newest first, by id", () => {

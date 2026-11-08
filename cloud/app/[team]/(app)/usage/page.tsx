@@ -16,6 +16,7 @@ import { teamGitHub } from "@/lib/github/team-data";
 import { skippedExecution } from "@/lib/job-savings";
 import { observedCiComparisons } from "@/lib/observed-ci-comparisons";
 import { overviewCi } from "@/lib/overview-ci";
+import { runnerRate } from "@/lib/team-settings";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { lite } from "@/lib/savings";
 import { lastUtcDays, testMinutesPerDay } from "@/lib/test-runs";
@@ -26,11 +27,13 @@ export default async function UsagePage({ params, searchParams }: PageProps<"/[t
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team } = await requireTeam(slug);
-  const [ov, gh, ci, comparisons, history, recent] = await Promise.all([
+  const [ov, gh, ci, comparisons, history, recent, rate] = await Promise.all([
     api().getOverview(team.slug, range), teamGitHub(team.orgId), overviewCi(team, range), observedCiComparisons(team, range),
     section(api().listTestHistory(team.slug, {days:Number(range.slice(0,-1))})),
     section(api().listTestRuns(team.slug, {limit:200})),
+    runnerRate(team.orgId),
   ]);
+  const valuationRate = rate.canSave ? rate : undefined;
   const t = ov.totals;
   // Match Overview: an empty served history is authoritative, not a reason to use an older list.
   const testRuns = history.ok && history.value !== null ? history.value : recent.ok && recent.value ? recent.value.map(lite) : null;
@@ -64,7 +67,7 @@ export default async function UsagePage({ params, searchParams }: PageProps<"/[t
         </div>
         <GitHubUsage team={team.slug} plan={team.plan} range={range} state={ciState(link, !!inRange?.jobs)} week={week} inRange={inRange} />
         <LiveRefresh scope={{ kind: "team" }} types={["job.finished", "run.finished", "test.run"]} />
-        <ObservedCiComparisons data={comparisons} />
+        <ObservedCiComparisons data={comparisons} valuationRate={valuationRate} />
       </div>
     );
   }
@@ -76,11 +79,11 @@ export default async function UsagePage({ params, searchParams }: PageProps<"/[t
         <RangeToggle base={`/${team.slug}/usage`} current={range} />
       </div>
       <LiveRefresh scope={{ kind: "team" }} types={["job.finished", "run.finished", "test.run"]} />
-      <SavingsSummary totals={t} ci={ci} execution={execution} />
+      <SavingsSummary totals={t} ci={ci} execution={execution} valuationRate={valuationRate} />
       <section aria-label="Plan" className="stats">
         <Stat label="Plan" value={team.plan} note={team.plan === "Hobby" ? "Free for personal projects" : "Billed per team"} />
       </section>
-      <ObservedCiComparisons data={comparisons} />
+      <ObservedCiComparisons data={comparisons} valuationRate={valuationRate} />
       <section className="card" aria-labelledby="usage-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="row-between">
           <h2 id="usage-h" className="h2">

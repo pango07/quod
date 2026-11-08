@@ -119,8 +119,8 @@ export async function saveConnectChoice(slug: string, store: Store, host: Host):
 }
 
 /**
- * The runner price per minute the Overview estimates money saved with (admins).
- * An empty field goes back to the default (GitHub's Linux 2-core price).
+ * The team's runner-time valuation per minute, separate from actual charges (admins).
+ * An empty field goes back to the default valuation rate.
  */
 export async function saveRunnerRate(slug: string, _prev: ActionResult, form: FormData): Promise<ActionResult> {
   const { team, admin, viewer } = await requireTeam(slug);
@@ -135,6 +135,9 @@ export async function saveRunnerRate(slug: string, _prev: ActionResult, form: Fo
     return { ok: false, message: "The price could not be saved. Try again in a minute." };
   }
   revalidatePath(`/${team.slug}`);
+  revalidatePath(`/${team.slug}/usage`);
   revalidatePath(`/${team.slug}/settings`);
-  return { ok: true, message: rate === null ? "Back to GitHub's Linux 2-core price." : `Saved: $${rate} per runner minute.` };
+  // Include route groups in this documented file pattern; only repository Overview pages are invalidated.
+  revalidatePath("/[team]/(app)/[repo]/(tabs)", "page");
+  return { ok: true, message: rate === null ? "Default valuation rate restored." : `Saved: $${rate} per runner minute.` };
 }

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { MinutesChart } from "@/components/charts";
 import { SavingsSummary } from "@/components/savings-summary";
 import type { OverviewCi } from "@/lib/overview-ci";
+import type { RunnerValueRate } from "@/lib/runner-value";
 import type { Activity, DayMinutes, LiveEventType, LiveJob, LiveScope, TeamTotals } from "@/lib/api/types";
 import { formatCount, formatDuration, formatPercent, shortSha } from "@/lib/format";
 import { applyToDays } from "@/lib/live/jobs";
@@ -251,6 +252,7 @@ export function LiveTotals({
   ci,
   hasQuodData = true,
   execution,
+  valuationRate,
 }: {
   totals: TeamTotals;
   days: DayMinutes[];
@@ -262,6 +264,7 @@ export function LiveTotals({
   ci: OverviewCi;
   hasQuodData?: boolean;
   execution?: {minutes:number|null; note:string};
+  valuationRate?: RunnerValueRate;
 }) {
   const tests = daysFrom === "tests";
   const [t, setT] = useState(totals);
@@ -290,13 +293,13 @@ export function LiveTotals({
 
   return (
     <>
-      {tiles ? <SavingsSummary totals={t} ci={ci} hasQuodData={hasQuodData} execution={execution} /> : null}
+      {tiles ? <SavingsSummary totals={t} ci={ci} hasQuodData={hasQuodData} execution={execution} valuationRate={valuationRate} /> : null}
       {hasQuodData ? <details className="card" style={{padding:20}}>
         <summary style={{cursor:"pointer",fontSize:14}}>Savings details</summary>
         <p className="muted" style={{fontSize:13,marginTop:16,lineHeight:1.6}}>
           {tests ? null : <>{formatCount(t.stepsReplayed)} of {formatCount(t.stepsTotal)} steps replayed ({formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)}). {formatCount(t.spotChecks)} checks; {formatCount(t.spotChecks - t.spotChecksIdentical)} different results observed. </>}
           Skipped execution is estimated work avoided across workers. It is not elapsed CI time or net savings.
-          Net savings include recording, audits, setup and cleanup. Dollar estimates also require billing rules and runner rates.
+          Net savings include recording, audits, setup and cleanup. Modeled time value uses your configured runner rate even for free compute; provider charges depend on billing rules.
           Speed and cost percentages are not added together.
         </p>
       <section className="card" aria-labelledby="minutes-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>

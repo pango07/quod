@@ -138,6 +138,13 @@ and standard Ubuntu runner evidence is available. Missing evidence leaves
 cost unknown. Storage and Quod subscription costs are excluded; an estimate
 of skipped execution is not a measured reduction in an invoice.
 
+Settings' price per runner minute separately values the time difference,
+even on free runners: `(plain seconds - Quod seconds) / 60 * configured rate`.
+Extra time retains a negative value. Overview and Usage also price estimated
+execution avoided before overhead, with that basis labeled explicitly.
+These modeled values use the current team rate and remain separate from
+provider compute charges. If the rate cannot be loaded, value stays unknown.
+
 ## The jobs
 
 Measured on 2026-11-01 (runs 41349234113, 41351622901, 41352822987 in

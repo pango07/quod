@@ -7,6 +7,7 @@ import { RecentCi } from "@/components/savings-summary";
 import { ObservedCiComparisons } from "@/components/observed-ci-comparisons";
 import { overviewCi } from "@/lib/overview-ci";
 import { observedCiComparisons } from "@/lib/observed-ci-comparisons";
+import { runnerRate } from "@/lib/team-settings";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
@@ -23,12 +24,15 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity, ci, history, recent, testStats, comparisons] = await Promise.all([
+  const [ov, activity, ci, history, recent, testStats, comparisons, rate] = await Promise.all([
     api().getOverview(team.slug, range), api().getActivity(team.slug), overviewCi(team, range),
     section(api().listTestHistory(team.slug, {days:Number(range.slice(0,-1))})),
     section(api().listTestRuns(team.slug, {limit:200})), section(api().getTestStats(team.slug)),
     observedCiComparisons(team, range),
+    runnerRate(team.orgId),
   ]);
+  // A failed settings read must not impersonate the team's saved preference.
+  const valuationRate = rate.canSave ? rate : undefined;
   // A served, empty history is authoritative; fallback only for older/unavailable servers.
   const testRuns = history.ok && history.value !== null ? history.value : recent.ok && recent.value ? recent.value.map(lite) : null;
   const days = lastUtcDays(Number(range.slice(0,-1)), Date.parse(ov.asOf));
@@ -102,7 +106,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
       <LiveRefresh scope={{ kind: "team" }} />
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
-      <LiveTotals key={range} totals={t} days={testDays ?? ov.days} daysFrom={testDays ? "tests" : "steps"} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} ci={ci} hasQuodData={quod} execution={execution} />
+      <LiveTotals key={range} totals={t} days={testDays ?? ov.days} daysFrom={testDays ? "tests" : "steps"} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} ci={ci} hasQuodData={quod} execution={execution} valuationRate={valuationRate} />
       {paused.length > 0 || t.wrongReplays > 0 || (testStats.ok && (testStats.value?.wrongResults ?? 0) > 0) ? (
         <Link href={`${base}/trust`} className="notice">
           <Dot tone="amber" />
@@ -111,7 +115,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       ) : null}
       <NowRunning team={team.slug} initial={activity} hideWhenEmpty />
       <RecentCi ci={ci} />
-      <ObservedCiComparisons data={comparisons} />
+      <ObservedCiComparisons data={comparisons} valuationRate={valuationRate} />
       <div className="row-between" style={{fontSize:14}}>
         <Link href={`${base}/runs`} className="link-muted">All CI runs</Link>
         <Link href={`${base}/repositories`} className="link-muted">Repositories</Link>

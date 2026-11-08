@@ -374,7 +374,7 @@ export function formatSpan(ms: number): string {
 
 /** "$0.006 per minute" */
 export function rateText(usdPerMinute: number): string {
-  return `$${usdPerMinute.toFixed(usdPerMinute < 0.01 ? 4 : 3).replace(/0+$/, "").replace(/\.$/, "")} per minute`;
+  return `$${usdPerMinute.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} per minute`;
 }
 
 /** "-85%" style change from without to with. */
