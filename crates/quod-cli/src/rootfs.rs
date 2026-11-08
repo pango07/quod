@@ -204,11 +204,16 @@ pub fn host_probe() -> anyhow::Result<u8> {
 pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     // The fingerprint and the platform probe are independent processes
     // (~0.3s and ~0.2s): run them at once.
-    let (out, platform) = std::thread::scope(|s| {
-        let probe = s.spawn(|| platform(cas, runs));
+    let (out, platform, fingerprint_ms, platform_ms) = std::thread::scope(|s| {
+        let probe = s.spawn(|| {
+            let start = Instant::now();
+            let value = platform(cas, runs);
+            (value, start.elapsed().as_secs_f64() * 1000.0)
+        });
         // The toolchain binaries' hashes are kept by file identity under
         // the store (the script's QUOD_FP_CACHE): the output is the same
         // bytes, without reading ~200 MB of binaries every run.
+        let fingerprint_start = Instant::now();
         let out = Command::new("/bin/bash")
             .arg("-c")
             .arg(FINGERPRINT_SH)
@@ -217,11 +222,14 @@ pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
             .env("QUOD_FP_CACHE", cas.dir().join("host-fingerprint-cache"))
             .output()
             .context("run host fingerprint");
-        let platform = probe
-            .join()
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("the host platform probe panicked")));
-        (out, platform)
+        let fingerprint_ms = fingerprint_start.elapsed().as_secs_f64() * 1000.0;
+        let (platform, platform_ms) = probe.join().unwrap_or_else(|_| {
+            let error = anyhow::anyhow!("the host platform probe panicked");
+            (Err(error), 0.0)
+        });
+        (out, platform, fingerprint_ms, platform_ms)
     });
+    tracing::info!(target: "quod", fingerprint_ms, platform_ms, "host pin phases");
     let out = out?;
     if !out.status.success() {
         bail!(

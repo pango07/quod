@@ -105,6 +105,10 @@ pub struct RunArgs {
     /// the fallback for hosts without one. Such a proof does not travel.
     #[arg(long)]
     host_root: bool,
+    /// Diagnostic control: prepare the environment and checkout serially.
+    /// Changes scheduling only; the step key and proof checks are unchanged.
+    #[arg(long, hide = true)]
+    serial_preparation: bool,
     #[command(flatten)]
     policy: PolicyArgs,
     /// Kill the step after this long (30m, 2s, 1h; 0 for no limit). A
@@ -116,9 +120,15 @@ pub struct RunArgs {
 /// Wall time per phase, reported in the run event.
 #[derive(Default, Debug)]
 pub(crate) struct Phases {
-    /// Before the import: store, environment pin (host fingerprint or
-    /// rootfs), step key, ledger and trust.
+    started: Option<Instant>,
+    /// Store, environment pin (host fingerprint or rootfs), overlapped
+    /// checkout import, step key, ledger and trust.
     setup: Duration,
+    /// Subphases of setup; these overlap by default and must not be added.
+    pin: Duration,
+    environment: Duration,
+    checkout: Duration,
+    metadata: Duration,
     import: Duration,
     lookup: Duration,
     mount: Duration,
@@ -266,36 +276,71 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // Where run directories (the workspace overlay's upper) live, for the
     // host class's filesystem types; State::run_dir puts them here.
     let runs = state.dir.join("runs");
-    let pin = rootfs::pin(&cas, args.rootfs.as_deref(), args.host_root, &runs)?;
+    let mut pin_time = Duration::ZERO;
+    let mut metadata_time = Duration::ZERO;
+    let prepared = crate::prepare::inputs(
+        !args.allow_net,
+        args.serial_preparation,
+        || -> anyhow::Result<_> {
+            let pin_start = Instant::now();
+            let pin = rootfs::pin(&cas, args.rootfs.as_deref(), args.host_root, &runs)?;
+            pin_time = pin_start.elapsed();
+            let image = pin.image.clone();
+            let toolchain = match args.toolchain {
+                Some(t) => t,
+                None => detect_toolchain(&repo)?,
+            };
+            let warm = args.warm && !args.allow_net;
+            // The Go guard still applies only on the host root, with the
+            // original reviewed toolchain, script and environment rules.
+            let go_guard = (warm && pin.rootfs.is_none() && toolchain == Toolchain::Go)
+                .then(|| {
+                    GoTestGuard::for_step(
+                        &step,
+                        &extra_env,
+                        toolchain.profile().env,
+                        &cas.dir().join("go-test-guard"),
+                    )
+                })
+                .flatten();
+            let spec = if go_guard.is_some() {
+                StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env)?
+            } else if warm {
+                StepSpec::new_warm(toolchain, image.clone(), &step, &extra_env)?
+            } else {
+                StepSpec::new(toolchain, image.clone(), &step, &extra_env)
+            };
+            let key = step_key(&spec)?;
+            let env = spec.normalized_env()?;
+            let policy = args.policy.policy()?;
+            // Metadata registration has no workspace input. Overlap its
+            // request with checkout import as well as the environment pin.
+            // Network steps retain their original non-recording path.
+            let remote = if args.allow_net {
+                None
+            } else {
+                step_ledger_from_env(&cas, policy)
+            };
+            if let Some(remote) = &remote {
+                let metadata_start = Instant::now();
+                remote.put_step_key(&key, &quod_key::canonical_key_json(&spec)?)?;
+                metadata_time = metadata_start.elapsed();
+            }
+            Ok((pin, toolchain, warm, go_guard, spec, key, env, policy, remote))
+        },
+        || {
+            std::thread::scope(|scope| {
+                let served = scope.spawn(|| gitdir::served_git(&cas, &state.dir, &repo));
+                let checkout = deps::import_checkout(&cas, &repo);
+                let served = served
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                (checkout, served)
+            })
+        },
+    );
+    let (pin, toolchain, warm, go_guard, spec, key, env, policy, remote) = prepared.pin?;
     let image = pin.image.clone();
-    let toolchain = match args.toolchain {
-        Some(t) => t,
-        None => detect_toolchain(&repo)?,
-    };
-    let warm = args.warm && !args.allow_net;
-    // Go's test cache stays on, under Quod's guard, where the guard can
-    // reach every go test the step runs: on the host root (a rootfs's
-    // toolchain is not read here), for a script that runs go test.
-    let go_guard = (warm && pin.rootfs.is_none() && toolchain == Toolchain::Go)
-        .then(|| {
-            GoTestGuard::for_step(
-                &step,
-                &extra_env,
-                toolchain.profile().env,
-                &cas.dir().join("go-test-guard"),
-            )
-        })
-        .flatten();
-    let spec = if go_guard.is_some() {
-        StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env)?
-    } else if warm {
-        StepSpec::new_warm(toolchain, image.clone(), &step, &extra_env)?
-    } else {
-        StepSpec::new(toolchain, image.clone(), &step, &extra_env)
-    };
-    let key = step_key(&spec)?;
-    let env = spec.normalized_env()?;
-    let policy = args.policy.policy()?;
     let info = RunInfo {
         run_id: ulid::Ulid::generate().to_string(),
         head,
@@ -325,10 +370,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         );
     }
 
-    let mut phases = Phases::default();
+    let mut phases = Phases {
+        started: Some(wall_start),
+        pin: pin_time,
+        environment: prepared.pin_time,
+        checkout: prepared.checkout_time,
+        metadata: metadata_time,
+        ..Phases::default()
+    };
     // The local ledger, or a Quod server's when QUOD_SERVER is set (the
     // same calls; the server makes them on its own stores).
-    let remote = step_ledger_from_env(&cas, policy);
     let key_json = quod_key::canonical_key_json(&spec)?;
     if remote.is_none() {
         ledger.put_step_key(&key, &key_json)?;
@@ -339,27 +390,18 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         trust: &trust,
     };
     let store: &dyn StepLedger = match &remote {
-        Some(r) => {
-            r.put_step_key(&key, &key_json)?;
-            r
-        }
+        Some(r) => r,
         None => &local,
     };
     phases.setup = wall_start.elapsed();
 
     let t = Instant::now();
-    // The .git a plain checkout of this commit has (a shallow fetch into
-    // the store when the state dir has no memo of it) is independent of the
-    // workspace import: both run at once.
-    let (tree, served) = std::thread::scope(|s| {
-        let served = s.spawn(|| gitdir::served_git(&cas, &state.dir, &repo));
-        let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile());
-        // A panic there is a bug, not a checkout without a .git: it goes on.
-        let served = served
-            .join()
-            .unwrap_or_else(|p| std::panic::resume_unwind(p));
-        (tree, served)
-    });
+    let (checkout, served) = prepared
+        .checkout
+        .expect("observed steps prepare the checkout");
+    // The checkout and its served .git are already imported. Only the
+    // dependency trees whose location needs the image pin remain here.
+    let tree = deps::import_dependencies(&cas, &repo, &deps, spec.profile(), checkout?);
     // Its index refreshed for the step's identity (`execute` runs it as the
     // sandbox's default).
     let (uid, gid) = quod_sandbox::step_ids(None, None);
@@ -1482,6 +1524,10 @@ fn emit_event(
         mismatches = lookup.closest.as_ref().map(|(_, m)| m.total),
         recorded_ms = lookup.hit.as_ref().map(|(_, r)| r.duration_ms),
         setup_ms = ms(p.setup),
+        pin_ms = ms(p.pin),
+        environment_ms = ms(p.environment),
+        checkout_import_ms = ms(p.checkout),
+        metadata_ms = ms(p.metadata),
         import_ms = ms(p.import),
         lookup_ms = ms(p.lookup),
         mount_ms = ms(p.mount),
@@ -1496,6 +1542,7 @@ fn emit_event(
         record_ms = ms(p.record),
         cleanup_ms = ms(p.cleanup),
         total_ms = ms(total),
+        end_to_end_ms = p.started.map(|start| ms(start.elapsed())),
         "run"
     );
 }

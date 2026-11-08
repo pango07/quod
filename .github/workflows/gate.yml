@@ -22,7 +22,7 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud"
+        description: "Comma-separated jobs, or all: lint, merge-gate, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; cold-path only when named"
         required: false
         default: all
 
@@ -39,6 +39,67 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  # Experimental client scheduling control. Explicit dispatch only: does
+  # not replace the normal gates, release a client or deploy the backend.
+  cold-path:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'cold-path'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/quod-host
+        with:
+          toolchains: go node
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: quod-release
+      - name: Source checks and client unit regressions
+        run: |
+          cargo fmt --all --check
+          git diff --exit-code
+          cargo test --locked -p quod-cas
+          cargo test --locked -p quod-cli --bin quod
+          cargo clippy --locked -p quod-cli --all-targets -- -D warnings
+      - name: Build the reviewed experimental client
+        run: |
+          cargo build --release --locked -p quod-cli
+          git diff --exit-code
+          sha256sum target/release/quod
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 23b3694b0d983d5398cceed4b5b4e25c5c450c51
+          path: workload
+      - uses: ./workload/.github/actions/setup
+        with:
+          toolchains: node
+          node-version: 24.22.2
+          version: quod-client-v0.2.0
+          sha256: 356d8197ca5f25447c1dfab1ea586db872649b0420bc104294de1d9988b55ee1
+          server: ${{ vars.QUOD_SERVER }}
+          server-key: ${{ vars.QUOD_SERVER_KEY }}
+          mode: observe
+      - name: Install the exact current Cloud workload
+        working-directory: workload/cloud
+        run: npm ci
+      - name: Counterbalanced preparation control and complete Cloud checks
+        run: |
+          python3 scripts/cold-path-bench.py \
+            --quod "$GITHUB_WORKSPACE/target/release/quod" \
+            --repo "$GITHUB_WORKSPACE/workload" \
+            --out "$RUNNER_TEMP/quod-cold-path-$GITHUB_RUN_ID"
+      - name: Publish bounded timing data
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cold-path-timings
+          path: ${{ runner.temp }}/quod-cold-path-${{ github.run_id }}/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
   # Which jobs this event runs (docs/ci.md, "Minute budget"). Rust gates run
   # when anything outside cloud/ changed, the cloud job when cloud/ changed.
   # A push, or a new commit on a pull request, runs the fast gates (lint,

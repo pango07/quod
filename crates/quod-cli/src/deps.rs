@@ -113,18 +113,36 @@ fn served(profile: &Profile) -> Vec<&'static str> {
 /// of the profile's dependency trees grafted in from the state dir at
 /// `.quod/<name>`. A tree an older flow left in the checkout is
 /// adopted first.
+#[cfg(test)]
 pub fn import_workspace(
     cas: &Cas,
     repo: &Path,
     deps: &Deps,
     profile: &Profile,
 ) -> anyhow::Result<Tree> {
+    import_dependencies(cas, repo, deps, profile, import_checkout(cas, repo)?)
+}
+
+/// The image-independent checkout. Importing this does not need the host
+/// pin or the image-specific dependency directory, so it can run beside
+/// the environment probe. The same stat-cache and exclusion rules apply.
+pub fn import_checkout(cas: &Cas, repo: &Path) -> anyhow::Result<Tree> {
     // The checkout's .git (served separately, gitdir) and Quod's own
     // directory are not walked or hashed at all. Both imports read again
     // only the files that changed since the last (quod_cas's stat cache).
-    let mut tree = cas
-        .import_dir_cached(repo, &[".git", DOT])
-        .context("import workspace")?;
+    cas.import_dir_cached(repo, &[".git", DOT])
+        .context("import workspace")
+}
+
+/// Add the image-specific dependencies only after the pin is known. In
+/// particular, a .quod tree from another image must never be grafted in.
+pub fn import_dependencies(
+    cas: &Cas,
+    repo: &Path,
+    deps: &Deps,
+    profile: &Profile,
+    mut tree: Tree,
+) -> anyhow::Result<Tree> {
     for name in served(profile) {
         let dir = deps.dir(name);
         adopt_legacy(&repo.join(DOT).join(name), &dir)?;
@@ -305,6 +323,51 @@ mod tests {
         };
         let t = import_workspace(&cas, &repo, &bare, go).unwrap();
         assert!(t.get(".quod").is_none());
+    }
+
+    #[test]
+    fn early_checkout_import_keeps_dependencies_specific_to_the_selected_image() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join("node_modules/pkg")).unwrap();
+        std::fs::create_dir_all(repo.join(".quod/gocache")).unwrap();
+        std::fs::write(repo.join(".git/config"), "not served").unwrap();
+        std::fs::write(repo.join("node_modules/pkg/index.js"), "dependency").unwrap();
+        std::fs::write(repo.join(".quod/gocache/scratch"), "not an input").unwrap();
+        std::fs::write(repo.join("go.mod"), "module example").unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let checkout = import_checkout(&cas, &repo).unwrap();
+        assert!(checkout.get("node_modules/pkg/index.js").is_some());
+        assert!(checkout.get(".git/config").is_none());
+        assert!(checkout.get(".quod/gocache/scratch").is_none());
+        for image in ["image-a", "image-b"] {
+            let deps = Deps {
+                root: tmp.path().join("deps").join(image),
+            };
+            std::fs::create_dir_all(deps.dir("gomod/pkg")).unwrap();
+            std::fs::write(deps.dir("gomod/pkg/source.go"), image).unwrap();
+        }
+        for image in ["image-a", "image-b"] {
+            let deps = Deps {
+                root: tmp.path().join("deps").join(image),
+            };
+            let split = import_dependencies(
+                &cas,
+                &repo,
+                &deps,
+                Toolchain::Go.profile(),
+                checkout.clone(),
+            )
+            .unwrap();
+            let source = split.get(".quod/gomod/pkg/source.go").unwrap();
+            assert_eq!(source.h, Some(Hash::of(image.as_bytes())));
+            let reference = import_workspace(&cas, &repo, &deps, Toolchain::Go.profile()).unwrap();
+            assert_eq!(
+                split.iter().collect::<Vec<_>>(),
+                reference.iter().collect::<Vec<_>>()
+            );
+        }
     }
 
     /// Adoption happens once and never nests: with the new place already

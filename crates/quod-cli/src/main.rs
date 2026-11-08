@@ -30,6 +30,7 @@ mod deps;
 mod gitdir;
 mod gotest;
 mod inspect;
+mod prepare;
 mod profile;
 mod rootfs;
 mod run;

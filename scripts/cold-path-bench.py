@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Serial/overlapped preparation control; execute only in the reviewed CI job.
+
+One binary, workload commit, runner and policy; four counterbalanced fresh
+Quod states, with a second observed execution per state. These are command
+diagnostics, not a paired whole-job saving or a fresh-runner replay proof.
+"""
+
+import argparse
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import statistics
+import subprocess
+import time
+
+
+WORKLOAD = "23b3694b0d983d5398cceed4b5b4e25c5c450c51"
+TIMINGS = (
+    "setup_ms", "pin_ms", "environment_ms", "checkout_import_ms", "metadata_ms",
+    "import_ms", "lookup_ms", "mount_ms", "seal_ms", "exec_ms", "record_ms",
+    "end_to_end_ms",
+)
+
+
+def run(argv, cwd, env, log):
+    start = time.monotonic()
+    with log.open("wb") as stream:
+        result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream,
+                                stderr=subprocess.STDOUT, timeout=300)
+    elapsed = (time.monotonic() - start) * 1000
+    if result.returncode:
+        print(log.read_text(errors="replace")[-6000:])
+        raise AssertionError(f"{log.name}: command exit {result.returncode}")
+    return elapsed
+
+
+def event(state, previous):
+    path = state / "events.jsonl"
+    assert path.stat().st_size <= 8 * 1024 * 1024, "unexpected diagnostic size"
+    lines = path.read_text().splitlines()
+    assert all(len(line) <= 256 * 1024 for line in lines), "unbounded event"
+    events = [json.loads(line) for line in lines[previous:]]
+    assert not any(e.get("message") == "quod server offline" for e in events), "Cloud offline"
+    runs = [e for e in events if e.get("message") == "run" and e.get("step_key")]
+    assert len(runs) == 1, f"expected one command event, got {len(runs)}"
+    row = runs[0]
+    assert row["exit_code"] == 0 and row["mode"] == "observe", "execution policy changed"
+    assert row["outcome"] != "replayed" and row["exec_ms"] > 0, "command was skipped"
+    for field in TIMINGS:
+        assert isinstance(row.get(field), (float, int)), f"missing {field}"
+        assert math.isfinite(row[field]) and row[field] >= 0, f"invalid {field}"
+    pins = [e for e in events if e.get("message") == "host pin phases"]
+    assert len(pins) == 1, "host pin instrumentation missing"
+    return row, pins[0], len(lines)
+
+
+def observed(quod, repo, out, state, mode, label, command):
+    before = len((state / "events.jsonl").read_text().splitlines()) if state.exists() else 0
+    env = os.environ.copy()
+    env.update(QUOD_HOME=str(state), QUOD_MODE="observe")
+    argv = [str(quod), "run", "--toolchain", "node"]
+    if mode == "serial":
+        argv.append("--serial-preparation")
+    argv.extend(["--step", command])
+    log = out / f"{label}.log"
+    wall = run(argv, repo / "cloud", env, log)
+    row, pin, _ = event(state, before)
+    assert row["end_to_end_ms"] <= wall + 50, "internal wall time exceeds process time"
+    result = {
+        "label": label, "preparation": mode, "wall_ms": wall,
+        "overhead_ms": wall - row["exec_ms"],
+        "step_key": row["step_key"], "image": row["image"],
+        "manifest_id": row["manifest_id"], "outcome": row["outcome"],
+        "candidates": row["candidates"],
+        **{field: row[field] for field in TIMINGS},
+        **{field: pin[field] for field in ("fingerprint_ms", "platform_ms")},
+    }
+    print(json.dumps(result), flush=True)
+    return result, log
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--quod", type=Path, required=True)
+    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    quod, repo, out = (p.resolve() for p in (args.quod, args.repo, args.out))
+    assert not out.is_relative_to(repo), "diagnostics must stay outside the imported checkout"
+    out.mkdir(parents=True, exist_ok=False)
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    assert source == WORKLOAD, "workload source changed"
+    assert os.environ.get("QUOD_SERVER", "").startswith("https://"), "Cloud not configured"
+    assert len(os.environ.get("QUOD_SERVER_KEY", "")) == 64, "server key not pinned"
+    baseline = []
+    baseline.append(run(["npm", "run", "lint"], repo / "cloud", os.environ.copy(),
+                        out / "plain-before.log"))
+    rows = []
+    last_state = None
+    # ABBA: neither mode always benefits from going second. Every case has
+    # a new Quod store; this does not make the OS page cache cold again.
+    for index, mode in enumerate(("parallel", "serial", "serial", "parallel")):
+        state = out / f"state-{index}-{mode}"
+        for warmth in ("fresh-state", "reused-state"):
+            row, _ = observed(quod, repo, out, state, mode,
+                              f"{index}-{mode}-{warmth}", "npm run lint")
+            row["state"] = warmth
+            rows.append(row)
+        last_state = state
+    # Scheduling must leave the key, environment and observed inputs intact.
+    for field in ("step_key", "image", "manifest_id"):
+        assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
+    baseline.append(run(["npm", "run", "lint"], repo / "cloud", os.environ.copy(),
+                        out / "plain-after.log"))
+    # The full check commands still execute, with route generation and its
+    # consumer in one sandbox; the native build retains Google Fonts access.
+    observed(quod, repo, out, last_state, "parallel", "complete-typecheck",
+             "npx next typegen && npx tsc --noEmit")
+    _, test_log = observed(quod, repo, out, last_state, "parallel", "complete-tests",
+                           "node scripts/vitest-quod.mjs")
+    counters = [line for line in test_log.read_text().splitlines()
+                if line.startswith("test files:")]
+    assert len(counters) == 1 and "tests: 496 passed, 0 failed, 0 skipped, 496 total" in counters[0], counters
+    print(counters[0], flush=True)
+    run(["npm", "run", "build"], repo / "cloud", os.environ.copy(), out / "native-build.log")
+    subprocess.run(["git", "diff", "--exit-code"], cwd=repo, check=True)
+    summary = {
+        "workload": source, "binary_sha256": hashlib.sha256(quod.read_bytes()).hexdigest(),
+        "plain_lint_ms": baseline, "observations": rows,
+        "full_tests": 496,
+        "limits": ["one runner, four counterbalanced fresh Quod stores; OS page cache is shared",
+                   "observe mode executes every command; no replay or job-level savings claim",
+                   "phase timings overlap and must not be added"],
+    }
+    for warmth in ("fresh-state", "reused-state"):
+        group = [row for row in rows if row["state"] == warmth]
+        summary[warmth] = {
+            mode: {field: statistics.median(row[field] for row in group if row["preparation"] == mode)
+                   for field in ("wall_ms", "overhead_ms", "pin_ms", "metadata_ms", "checkout_import_ms")}
+            for mode in ("serial", "parallel")
+        }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps({key: summary[key] for key in ("fresh-state", "reused-state", "plain_lint_ms", "full_tests")}), flush=True)
+
+
+if __name__ == "__main__":
+    main()
