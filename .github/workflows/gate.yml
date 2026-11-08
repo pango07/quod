@@ -36,7 +36,7 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; bench-real only when named"
+        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; bench-real and incremental only when named"
         required: false
         default: all
       bench_real:
@@ -391,3 +391,114 @@ jobs:
         with:
           name: cloud-overview-preview
           path: /tmp/quod-overview-preview
+
+  incremental-controls:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'incremental'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.2'
+      - name: Planner boundaries
+        run: node --test .github/actions/incremental/plan.test.mjs
+      - name: Install the project's actual compiler
+        working-directory: cloud
+        run: npm ci
+      - name: Compare restored and clean compiler diagnostics
+        run: node scripts/incremental-controls.mjs
+
+  incremental-cold:
+    needs: incremental-controls
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'incremental'
+    name: incremental cold (${{ matrix.arm }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [plain, quod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      LANG: C.UTF-8
+      TZ: UTC
+      INCREMENTAL_ARM: ${{ matrix.arm }}
+      INCREMENTAL_PHASE: cold
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.2'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('cloud/package-lock.json') }}
+      - uses: ./.github/actions/incremental
+        if: matrix.arm == 'quod'
+        with:
+          working-directory: cloud
+          next: 'true'
+          namespace: inc-${{ github.run_id }}
+      - name: Complete native Cloud pipeline
+        run: node scripts/incremental-ci.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: incremental-cold-${{ matrix.arm }}
+          path: ${{ runner.temp }}/incremental-result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  incremental-reuse:
+    # Dependencies include post-job cache upload, so each consumer is fresh
+    # and can read only a completed cold seed, not a same-process warm state.
+    needs: incremental-cold
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'incremental'
+    name: incremental ${{ matrix.phase }} (${{ matrix.arm }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [plain, quod]
+        phase: [warm, changed]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      LANG: C.UTF-8
+      TZ: UTC
+      INCREMENTAL_ARM: ${{ matrix.arm }}
+      INCREMENTAL_PHASE: ${{ matrix.phase }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.2'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('cloud/package-lock.json') }}
+      - uses: ./.github/actions/incremental
+        if: matrix.arm == 'quod'
+        with:
+          working-directory: cloud
+          next: 'true'
+          namespace: inc-${{ github.run_id }}
+      - name: Complete native Cloud pipeline
+        run: node scripts/incremental-ci.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: incremental-${{ matrix.phase }}-${{ matrix.arm }}
+          path: ${{ runner.temp }}/incremental-result.json
+          if-no-files-found: error
+          retention-days: 7

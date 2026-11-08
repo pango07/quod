@@ -1,0 +1,42 @@
+name: Quod incremental tools
+description: Preserve native compiler state across fresh runners. Tools still validate inputs and execute normally.
+inputs:
+  working-directory:
+    description: npm project directory, relative to the checkout
+    default: '.'
+  next:
+    description: Also preserve Next.js .next/cache (default distDir only)
+    default: 'false'
+  namespace:
+    description: Optional isolated cache namespace
+    default: 'default'
+outputs:
+  eligible:
+    description: Whether supported native state was found
+    value: ${{ steps.plan.outputs.eligible }}
+  cache-hit:
+    description: Exact cache match; this is not a replay or a skipped check
+    value: ${{ steps.cache.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Plan native state reuse
+      id: plan
+      shell: bash
+      env:
+        QUOD_INCREMENTAL_DIRECTORY: ${{ inputs.working-directory }}
+        QUOD_INCREMENTAL_NEXT: ${{ inputs.next }}
+        QUOD_INCREMENTAL_NAMESPACE: ${{ inputs.namespace }}
+      run: node "$GITHUB_ACTION_PATH/plan.mjs"
+    - name: Restore native compiler state
+      id: cache
+      if: steps.plan.outputs.eligible == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
+      with:
+        path: ${{ steps.plan.outputs.paths }}
+        key: ${{ steps.plan.outputs.key }}
+        restore-keys: ${{ steps.plan.outputs.prefix }}
+        # Bounds a stalled download; a cache miss runs the normal tools.
+        enableCrossOsArchive: false
