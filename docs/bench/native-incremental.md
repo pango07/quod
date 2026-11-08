@@ -32,6 +32,9 @@ package lock, configuration, project and adapter selection. The commit suffix
 permits a new state to be saved after source changes. A compatible older
 cache is a native compiler hint, not authority to accept the previous result.
 Preexisting state and symlinked destinations decline restoration.
+The optional `generation` input defaults to the job's commit SHA; workflows
+that check out a different revision can supply that commit or a content digest.
+It changes the save key, not the compatible-state prefix or native validation.
 
 Transport is GitHub Actions cache with its repository/branch access rules.
 No Cloud signing, API, production deployment or Class-management change is

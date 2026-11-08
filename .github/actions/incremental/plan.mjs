@@ -96,7 +96,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     directory: process.env.QUOD_INCREMENTAL_DIRECTORY,
     next: process.env.QUOD_INCREMENTAL_NEXT === 'true',
     namespace: process.env.QUOD_INCREMENTAL_NAMESPACE,
-    revision: process.env.GITHUB_SHA});
+    revision: process.env.QUOD_INCREMENTAL_GENERATION ?? process.env.GITHUB_SHA});
   if (process.env.GITHUB_OUTPUT) {
     const delimiter = `quod_${crypto.randomBytes(16).toString('hex')}`;
     const lines = [`eligible=${result.eligible}`, `key=${result.key ?? ''}`, `prefix=${result.prefix ?? ''}`,
