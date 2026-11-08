@@ -104,8 +104,12 @@ print a summary without timings, as this repository's
   nothing is recorded.
 - GitHub's `ubuntu-latest` pool mixes CPU models (five seen in one
   afternoon), and a result is proved per CPU model, so each model goes
-  through its own shadow phase. `.github/workflows/quod-cloud.yml` spends
-  it in one job (the step twice more when it did not replay).
+  through its own shadow phase. `.github/workflows/quod-cloud.yml` makes
+  four extra test/lint commands an explicit manual `warmup` option,
+  disabled by default. This does not change the engine's trust thresholds.
+  Its current host-root fallback does not establish portable proofs across
+  fresh runners; a pinned rootfs alone would still not remove the other
+  machine-class requirements.
 - The first `quod run` of a job spends about a minute fingerprinting the
   fresh runner and hashing the workspace (a large `node_modules` included);
   later steps in the job start in about a second.

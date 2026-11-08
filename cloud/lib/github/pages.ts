@@ -44,6 +44,8 @@ export interface GhRun {
   id: number;
   repoId: number;
   repoFullName: string;
+  /** Repository visibility from the linked GitHub installation; absent evidence is unknown. */
+  repositoryPrivate?: boolean | null;
   workflow: string;
   title: string;
   /** Per workflow on GitHub, so not unique in a repo: runs are addressed by id. */
@@ -63,7 +65,7 @@ export interface GhRun {
 }
 
 const RUN_SELECT = `
-  SELECT w.id, w.repo_id, r.full_name AS repo_full_name, w.name, w.display_title, w.run_number, w.run_attempt, w.event,
+  SELECT w.id, w.repo_id, r.full_name AS repo_full_name, r.private AS repository_private, w.name, w.display_title, w.run_number, w.run_attempt, w.event,
          w.head_branch, w.head_sha, w.actor_login, w.status, w.conclusion, w.html_url, w.gh_updated_at,
          COALESCE(w.run_started_at, w.created_at) AS started_at, t.finished
   FROM workflow_runs w
@@ -82,6 +84,7 @@ function runFromRow(row: Row): GhRun {
     id: Number(row.id),
     repoId: Number(row.repo_id),
     repoFullName: str(row.repo_full_name),
+    repositoryPrivate: typeof row.repository_private === "boolean" ? row.repository_private : null,
     workflow: str(row.name),
     title: str(row.display_title, str(row.name)),
     runNumber: typeof row.run_number === "number" ? row.run_number : null,
@@ -156,6 +159,8 @@ export interface GhJobView {
   labels: string[];
   htmlUrl: string;
   steps: GhStepView[];
+  /** Raw job identity, so comparisons cannot mix another source or run attempt. */
+  source?: { runId: number; runAttempt: number; repoId: number; sha: string; workflow: string };
 }
 
 /** One of the team's runs with its latest attempt's jobs and their steps; null if the team cannot see it. */
@@ -165,7 +170,7 @@ export async function getTeamRun(teamId: TeamId, db: Db, runId: number): Promise
   if (!row) return null;
   const run = runFromRow(row);
   const rows = await db.query(
-    `SELECT id, name, status, conclusion, started_at, completed_at, created_at, runner_name, runner_group_name, labels, html_url, steps
+    `SELECT id, run_id, run_attempt, repo_id, head_sha, workflow_name, name, status, conclusion, started_at, completed_at, created_at, runner_name, runner_group_name, labels, html_url, steps
      FROM workflow_jobs WHERE run_id = $1 AND run_attempt = $2
      ORDER BY COALESCE(started_at, created_at) ASC NULLS LAST, id ASC`,
     [run.id, run.runAttempt],
@@ -195,6 +200,7 @@ export async function getTeamRun(teamId: TeamId, db: Db, runId: number): Promise
       labels: jsonArray(j.labels).map(String),
       htmlUrl: str(j.html_url),
       steps,
+      source: { runId: Number(j.run_id), runAttempt: Number(j.run_attempt), repoId: Number(j.repo_id), sha: str(j.head_sha), workflow: str(j.workflow_name) },
     };
   });
   return { run, jobs };

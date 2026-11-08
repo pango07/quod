@@ -44,8 +44,8 @@ scripts/bench-lite.sh --against main     # re-runs itself as dev.sh 'flock /work
 ## Triggers
 
 The policy (2026-11-04, ci/milestone-gates): **gates run at milestones and on
-pull requests to main, never on a branch push.** The repository is private
-and its minutes are billed; per-push gates on `exp/**`, `fix/**`, `cloud/**`
+pull requests to main, never on a branch push.** When this policy was adopted,
+the repository was private and its minutes were billed; per-push gates on `exp/**`, `fix/**`, `cloud/**`
 and `ci/**` billed about 1,230 minutes in a day and a half (2026-11-03/04),
 and lint alone 432 of them.
 
@@ -98,6 +98,45 @@ The other workflows:
 
 Every job has a `timeout-minutes` a little above its measured time, so a
 hung job cannot burn hours.
+
+## Quod on this repository's Cloud checks
+
+`quod-cloud.yml` runs the real Cloud lint, route generation and TypeScript
+checks, and the complete Vitest suite through the pinned released Quod client.
+Route generation and TypeScript share one sandbox because Quod discards a
+step's workspace writes by default. `npm ci` and the Next production build
+run normally; the build currently downloads Google Fonts. No build replay
+is claimed. The four extra shadow test/lint commands are manual `warmup`
+only, disabled for normal CI.
+
+To observe the total cost of using Quod, dispatch one matched comparison:
+
+```sh
+gh workflow run quod-cloud.yml --repo pango07/quod --ref <branch> -f compare=true -f warmup=false
+```
+
+This runs `cloud (through quod)` and `cloud (plain baseline)` on separate
+fresh runners, using the same source commit, Node version, npm cache policy
+and check commands. `compare` and `warmup` cannot be combined. Compare the
+complete successful job lifetimes, including checkout, setup, installation,
+reporting and post steps; command event totals are diagnostics only.
+Different runner hardware and npm cache conditions can affect the observed
+difference. The current host-root fallback does not guarantee replay on a
+fresh runner.
+
+For the linked team, Quod Cloud shows completed pairs on Overview, the
+`pango07/quod` repository Overview and Usage. It accepts only the same
+successful manual workflow run, source and latest attempt, retains extra
+runner time as a regression, and links to GitHub's source jobs. It inspects
+at most 12 eligible runs from the latest 100 repository runs in the selected
+range, without inferring historical baselines.
+
+The repository is now public. [GitHub's standard hosted runners are free
+for public repositories](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
+so these jobs have $0 runner compute savings when both jobs' public-repository
+and standard Ubuntu runner evidence is available. Missing evidence leaves
+cost unknown. Storage and Quod subscription costs are excluded; an estimate
+of skipped execution is not a measured reduction in an invoice.
 
 ## The jobs
 
