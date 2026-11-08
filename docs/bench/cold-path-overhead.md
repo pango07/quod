@@ -22,6 +22,13 @@ control against the fixed Cloud workload `23b3694b` on one GitHub runner.
 No release, backend deployment, main merge or Class-management change is
 part of this gate.
 
+The client runs through the setup action's existing root wrapper, with
+the reviewed binary's hash checked against the installed one. Fresh state
+directories live under the normal private `/var/lib/quod`, so the sandbox
+does not need access through GitHub's runner-owned temporary directory.
+The runner reads only its experiment event data through `sudo cat`;
+state and sandbox permissions are unchanged.
+
 Four fresh Quod stores use parallel/serial/serial/parallel order. Each
 also runs a second execution against its reused store. Observe mode keeps
 every lint command executing. The control rejects changes in the step

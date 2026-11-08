@@ -37,11 +37,23 @@ def run(argv, cwd, env, log):
     return elapsed
 
 
-def event(state, previous):
+def event_lines(state, missing_ok=False):
     path = state / "events.jsonl"
-    assert path.stat().st_size <= 8 * 1024 * 1024, "unexpected diagnostic size"
-    lines = path.read_text().splitlines()
+    # The normal setup keeps /var/lib/quod private to root. Read only this
+    # experiment's event data; do not relax state or sandbox permissions.
+    result = subprocess.run(["sudo", "-n", "cat", str(path)], stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, timeout=10)
+    if result.returncode and missing_ok and b"No such file or directory" in result.stderr:
+        return []
+    assert result.returncode == 0, "could not read experiment events"
+    assert len(result.stdout) <= 8 * 1024 * 1024, "unexpected diagnostic size"
+    lines = result.stdout.decode().splitlines()
     assert all(len(line) <= 256 * 1024 for line in lines), "unbounded event"
+    return lines
+
+
+def event(state, previous):
+    lines = event_lines(state)
     events = [json.loads(line) for line in lines[previous:]]
     assert not any(e.get("message") == "quod server offline" for e in events), "Cloud offline"
     runs = [e for e in events if e.get("message") == "run" and e.get("step_key")]
@@ -58,7 +70,7 @@ def event(state, previous):
 
 
 def observed(quod, repo, out, state, mode, label, command):
-    before = len((state / "events.jsonl").read_text().splitlines()) if state.exists() else 0
+    before = len(event_lines(state, missing_ok=True))
     env = os.environ.copy()
     env.update(QUOD_HOME=str(state), QUOD_MODE="observe")
     argv = [str(quod), "run", "--toolchain", "node"]
@@ -104,10 +116,12 @@ def main():
                         out / "plain-before.log"))
     rows = []
     last_state = None
+    run_id = str(int(os.environ["GITHUB_RUN_ID"]))
     # ABBA: neither mode always benefits from going second. Every case has
     # a new Quod store; this does not make the OS page cache cold again.
     for index, mode in enumerate(("parallel", "serial", "serial", "parallel")):
-        state = out / f"state-{index}-{mode}"
+        state = Path("/var/lib/quod") / f"cold-path-{run_id}-{index}-{mode}"
+        assert not event_lines(state, missing_ok=True), "Quod state was not fresh"
         for warmth in ("fresh-state", "reused-state"):
             row, _ = observed(quod, repo, out, state, mode,
                               f"{index}-{mode}-{warmth}", "npm run lint")
