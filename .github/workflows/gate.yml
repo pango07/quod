@@ -61,6 +61,7 @@ jobs:
           cache-on-failure: true
       - name: Source checks and client unit regressions
         run: |
+          python3 scripts/cold-path-bench.test.py
           cargo fmt --all --check
           git diff --exit-code
           cargo test --locked -p quod-cas

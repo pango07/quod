@@ -31,8 +31,9 @@ state and sandbox permissions are unchanged.
 
 Four fresh Quod stores use parallel/serial/serial/parallel order. Each
 also runs a second execution against its reused store. Observe mode keeps
-every lint command executing. The control rejects changes in the step
-key, image or observed manifest and validates all 496 Cloud tests, the
+every lint command executing. The control rejects changes in the entire
+input tree, step key, image, positive reads or compared outputs, requires
+each manifest to match its actual input tree, and validates all 496 Cloud tests, the
 route generation plus typecheck, and the native production build. Two
 plain lint observations bracket the control. The OS page cache is shared;
 the stores are fresh, not four independently cold hosts. These are command
@@ -45,11 +46,14 @@ keeps its prior meaning for compatibility. The outer process timer remains
 the comparison's wall-clock measurement, including all preparation.
 
 The first measured control retained matching step keys and images but
-produced different manifest IDs in some executions, including repeated
-serial controls. Its identity guard failed, so the scheduling change is
-not released. Opt-in `--diagnose-inputs` now writes bounded input metadata
-and output hashes into the private state directory; no file contents or
-environment values are exported. The control compares entire input-tree
-and output hashes and prints only bounded read-set differences before the
-original manifest-identity guard. This classifies the variation without
-relaxing validation to obtain a passing benchmark.
+produced different manifest IDs, including repeated serial controls. The
+bounded diagnostic established identical entire input trees and every
+compared output hash across all eight executions. The only entry differences
+were extra absent lookups for `node_modules` below the invite and reset-password
+pages. Exact read-set identity was too strict for this valid resolver variation.
+The corrected control retains every absence record in Quod's manifests and
+checks each manifest against the actual input tree, with identical positive
+reads, frame, complete input trees and compared outputs. Negative controls
+reject content, mode, path, frame, output, key, image and validity changes.
+Opt-in `--diagnose-inputs` writes bounded metadata and hashes into private
+state; no file contents or environment values are exported.

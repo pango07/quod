@@ -97,6 +97,7 @@ def observed(quod, repo, out, state, mode, label, command):
         "manifest_id": row["manifest_id"], "outcome": row["outcome"],
         "candidates": row["candidates"],
         "input_tree": diagnostic["input_tree"],
+        "manifest_matches_input": diagnostic["manifest_matches_input"],
         "stdout_hash": diagnostic["stdout"], "stderr_hash": diagnostic["stderr"],
         "outputs_hash": diagnostic["outputs"], "root_outputs_hash": diagnostic["root_outputs"],
         "diagnostics_ms": row["diagnostics_ms"],
@@ -106,6 +107,27 @@ def observed(quod, repo, out, state, mode, label, command):
     print(json.dumps(result), flush=True)
     result["_manifest"] = diagnostic["manifest"]
     return result, log
+
+
+def validate_controls(rows):
+    """Read sets may vary; every observation must still hold on the same input.
+
+    Keep all negative observations in their manifests. Only the control's
+    identity comparison permits different, validated absence probes.
+    """
+    assert len(rows) >= 2, "missing comparison controls"
+    for field in ("input_tree", "stdout_hash", "stderr_hash", "outputs_hash",
+                  "root_outputs_hash", "step_key", "image"):
+        assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
+    reference = rows[0]["_manifest"]
+    frame = {key: value for key, value in reference.items() if key != "entries"}
+    positive = [entry for entry in reference["entries"] if entry["k"] != "a"]
+    for row in rows:
+        assert row["manifest_matches_input"] is True, "manifest disagrees with actual input"
+        manifest = row["_manifest"]
+        assert {key: value for key, value in manifest.items() if key != "entries"} == frame, "manifest frame changed"
+        assert manifest["step_key"] == row["step_key"], "manifest belongs to another step"
+        assert [entry for entry in manifest["entries"] if entry["k"] != "a"] == positive, "positive reads changed"
 
 
 def main():
@@ -142,8 +164,8 @@ def main():
             row["state"] = warmth
             rows.append(row)
         last_state = state
-    # Diagnose any read-set variation, including between serial controls.
-    # Keep the original manifest identity guard pending a classified cause.
+    # Report read-set variation, including between serial controls. Extra
+    # absence probes are permitted only when valid on the same input tree.
     reference = {(entry["p"], entry["k"]): entry for entry in rows[0]["_manifest"]["entries"]}
     for row in rows[1:]:
         current = {(entry["p"], entry["k"]): entry for entry in row["_manifest"]["entries"]}
@@ -155,13 +177,9 @@ def main():
         print(json.dumps({"label": row["label"], "manifest_delta": {
             "added": len(added), "removed": len(removed), "changed": len(changed),
             "samples": sample}}), flush=True)
+    validate_controls(rows)
     for row in rows:
         del row["_manifest"]
-    # Scheduling must leave the entire input tree, key and environment intact.
-    for field in ("input_tree", "stdout_hash", "stderr_hash", "outputs_hash", "root_outputs_hash"):
-        assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
-    for field in ("step_key", "image", "manifest_id"):
-        assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
     baseline.append(run(["npm", "run", "lint"], repo / "cloud", os.environ.copy(),
                         out / "plain-after.log"))
     # The full check commands still execute, with route generation and its

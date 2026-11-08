@@ -767,6 +767,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         let diagnostic = serde_json::json!({
             "v": 1,
             "input_tree": input_tree,
+            "manifest_matches_input": quod_manifest::matches(&ex.manifest, &tree).is_ok(),
             "manifest": &ex.manifest,
             "stdout": compared.stdout,
             "stderr": compared.stderr,
