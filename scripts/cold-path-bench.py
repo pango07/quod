@@ -85,10 +85,14 @@ def observed(quod, repo, out, state, mode, label, command):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--quod", type=Path, required=True)
+    parser.add_argument("--client", type=Path, required=True)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     quod, repo, out = (p.resolve() for p in (args.quod, args.repo, args.out))
+    client_hash = hashlib.sha256(args.client.read_bytes()).hexdigest()
+    installed_hash = hashlib.sha256(Path("/usr/local/lib/quod/quod").read_bytes()).hexdigest()
+    assert client_hash == installed_hash, "root wrapper would run a different client"
     assert not out.is_relative_to(repo), "diagnostics must stay outside the imported checkout"
     out.mkdir(parents=True, exist_ok=False)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
@@ -128,7 +132,7 @@ def main():
     run(["npm", "run", "build"], repo / "cloud", os.environ.copy(), out / "native-build.log")
     subprocess.run(["git", "diff", "--exit-code"], cwd=repo, check=True)
     summary = {
-        "workload": source, "binary_sha256": hashlib.sha256(quod.read_bytes()).hexdigest(),
+        "workload": source, "binary_sha256": client_hash,
         "plain_lint_ms": baseline, "observations": rows,
         "full_tests": 496,
         "limits": ["one runner, four counterbalanced fresh Quod stores; OS page cache is shared",

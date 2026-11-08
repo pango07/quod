@@ -86,10 +86,13 @@ jobs:
       - name: Install the exact current Cloud workload
         working-directory: workload/cloud
         run: npm ci
+      - name: Use the existing root wrapper with the exact experimental binary
+        run: sudo install -m 0755 target/release/quod /usr/local/lib/quod/quod
       - name: Counterbalanced preparation control and complete Cloud checks
         run: |
           python3 scripts/cold-path-bench.py \
-            --quod "$GITHUB_WORKSPACE/target/release/quod" \
+            --quod /usr/local/bin/quod \
+            --client "$GITHUB_WORKSPACE/target/release/quod" \
             --repo "$GITHUB_WORKSPACE/workload" \
             --out "$RUNNER_TEMP/quod-cold-path-$GITHUB_RUN_ID"
       - name: Publish bounded timing data
