@@ -55,6 +55,13 @@ to that workflow run. No same-runner replay
 or repeated warmup commands occur in the matched jobs. The workflow waits for
 the seed job's post steps before starting consumers.
 
+The final gate uses the externally downloaded action pinned at `93119cf`,
+with byte-identical action sources in the validated checkout. Plain jobs have
+separate step definitions and never download that action. The changed-source
+case requests a distinct cache generation, so it restores compatible prior
+state and pays for saving the updated state in post steps. This includes
+distribution and refresh costs that a local-action, exact-key-only test misses.
+
 Acceptance: all controls and full app checks pass; real cache transport works
 on fresh runners; full-job measurements, including the initial learning/save
 cost, justify further trials. Three pairs are an initial decision experiment,
