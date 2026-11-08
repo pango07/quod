@@ -94,7 +94,12 @@ mod tests {
     #[test]
     fn network_steps_never_import_the_checkout() {
         for serial in [false, true] {
-            let prepared = inputs(false, serial, || 23, || -> usize { panic!("unneeded import") });
+            let prepared = inputs(
+                false,
+                serial,
+                || 23,
+                || -> usize { panic!("unneeded import") },
+            );
             assert_eq!(prepared.pin, 23);
             assert!(prepared.checkout.is_none());
             assert_eq!(prepared.checkout_time, Duration::ZERO);

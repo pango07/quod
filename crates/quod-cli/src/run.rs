@@ -326,7 +326,9 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 remote.put_step_key(&key, &quod_key::canonical_key_json(&spec)?)?;
                 metadata_time = metadata_start.elapsed();
             }
-            Ok((pin, toolchain, warm, go_guard, spec, key, env, policy, remote))
+            Ok((
+                pin, toolchain, warm, go_guard, spec, key, env, policy, remote,
+            ))
         },
         || {
             std::thread::scope(|scope| {
