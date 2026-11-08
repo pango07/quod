@@ -61,6 +61,334 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  packaged-property47-seed:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-packaged'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGED_ACTION_SHA: '0520117d99379472cd33dbb777f852d8a189a20a'
+      PACKAGED_SOURCE_SHA: 'f67fe14033de76f0b26b436cef4e5d50b0af1ee3'
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    outputs:
+      logical_sha256: ${{ steps.proof.outputs.logical_sha256 }}
+      file_states_sha256: ${{ steps.proof.outputs.file_states_sha256 }}
+      collection_sha256: ${{ steps.proof.outputs.collection_sha256 }}
+      cache_id: ${{ steps.proof.outputs.cache_id }}
+      scope_sha256: ${{ steps.proof.outputs.scope_sha256 }}
+    steps:
+      - name: stage reviewed proof reader outside original project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs
+          persist-credentials: false
+      - name: retain proof reader
+        run: cp scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs"
+      - name: checkout original c11 at the unchanged repository root
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          persist-credentials: false
+      - name: verify original Node declaration
+        run: test "$(tr -d '\r\n' < .nvmrc)" = 24.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - name: require approved full pins before the Action or project commands
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" preflight seed "$RUNNER_TEMP/property47-packaged-proof-seed"
+      - name: quod
+        uses: pango07/quod-action@0520117d99379472cd33dbb777f852d8a189a20a # reviewed built Action B required
+        with:
+          managed-vitest: 'matrix-property47'
+          managed-env: '{"NODE_ENV":"test"}'
+          managed-epoch: '1700000000000'
+          managed-seed: '42'
+          record: 'true'
+          cache-namespace: packaged-property47-${{ github.run_id }}-property47
+          cloud: 'false'
+          task-cache: 'false'
+      - name: verify actual shipped archive and safe runtime provenance
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" runtime seed "$RUNNER_TEMP/property47-packaged-proof-seed"
+      - name: install
+        run: npm ci
+      - name: build
+        run: npm run build
+      - name: test
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee "$RUNNER_TEMP/property47-packaged-proof-seed/test.log"
+      - name: independently inspect full logical or native compatibility evidence before post
+        id: proof
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" after seed "$RUNNER_TEMP/property47-packaged-proof-seed"
+      - name: retain raw invocation evidence even after a diagnostic assertion failed
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" retain seed "$RUNNER_TEMP/property47-packaged-proof-seed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-packaged-seed
+          path: ${{ runner.temp }}/property47-packaged-proof-seed/
+          if-no-files-found: error
+  packaged-property47-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-packaged'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGED_ACTION_SHA: '0520117d99379472cd33dbb777f852d8a189a20a'
+      PACKAGED_SOURCE_SHA: 'f67fe14033de76f0b26b436cef4e5d50b0af1ee3'
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    outputs:
+      logical_sha256: ${{ steps.proof.outputs.logical_sha256 }}
+      file_states_sha256: ${{ steps.proof.outputs.file_states_sha256 }}
+      collection_sha256: ${{ steps.proof.outputs.collection_sha256 }}
+      cache_id: ${{ steps.proof.outputs.cache_id }}
+      scope_sha256: ${{ steps.proof.outputs.scope_sha256 }}
+    steps:
+      - name: stage reviewed proof reader outside original project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs
+          persist-credentials: false
+      - name: retain proof reader
+        run: cp scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs"
+      - name: checkout original c11 at the unchanged repository root
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          persist-credentials: false
+      - name: verify original Node declaration
+        run: test "$(tr -d '\r\n' < .nvmrc)" = 24.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - name: require approved full pins before the Action or project commands
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" preflight control "$RUNNER_TEMP/property47-packaged-proof-control"
+      - name: quod
+        uses: pango07/quod-action@0520117d99379472cd33dbb777f852d8a189a20a # reviewed built Action B required
+        with:
+          managed-vitest: 'matrix-property47-control'
+          managed-env: '{"NODE_ENV":"test"}'
+          managed-epoch: '1700000000000'
+          managed-seed: '42'
+          record: 'false'
+          cache-namespace: packaged-property47-${{ github.run_id }}-property47-control
+          cloud: 'false'
+          task-cache: 'false'
+      - name: verify actual shipped archive and safe runtime provenance
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" runtime control "$RUNNER_TEMP/property47-packaged-proof-control"
+      - name: install
+        run: npm ci
+      - name: build
+        run: npm run build
+      - name: test
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee "$RUNNER_TEMP/property47-packaged-proof-control/test.log"
+      - name: independently inspect full logical or native compatibility evidence before post
+        id: proof
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" after control "$RUNNER_TEMP/property47-packaged-proof-control"
+      - name: retain raw invocation evidence even after a diagnostic assertion failed
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" retain control "$RUNNER_TEMP/property47-packaged-proof-control"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-packaged-control
+          path: ${{ runner.temp }}/property47-packaged-proof-control/
+          if-no-files-found: error
+  packaged-property47-consumer:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-packaged'
+    needs: [packaged-property47-seed, packaged-property47-control]
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGED_ACTION_SHA: '0520117d99379472cd33dbb777f852d8a189a20a'
+      PACKAGED_SOURCE_SHA: 'f67fe14033de76f0b26b436cef4e5d50b0af1ee3'
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+      SEED_LOGICAL_SHA: ${{ needs['packaged-property47-seed'].outputs.logical_sha256 }}
+      CONTROL_LOGICAL_SHA: ${{ needs['packaged-property47-control'].outputs.logical_sha256 }}
+      SEED_FILE_STATES_SHA: ${{ needs['packaged-property47-seed'].outputs.file_states_sha256 }}
+      CONTROL_FILE_STATES_SHA: ${{ needs['packaged-property47-control'].outputs.file_states_sha256 }}
+      SEED_COLLECTION_SHA: ${{ needs['packaged-property47-seed'].outputs.collection_sha256 }}
+      SEED_CACHE_ID: ${{ needs['packaged-property47-seed'].outputs.cache_id }}
+      SEED_SCOPE_SHA: ${{ needs['packaged-property47-seed'].outputs.scope_sha256 }}
+      CONTROL_SCOPE_SHA: ${{ needs['packaged-property47-control'].outputs.scope_sha256 }}
+    outputs:
+      logical_sha256: ${{ steps.proof.outputs.logical_sha256 }}
+      file_states_sha256: ${{ steps.proof.outputs.file_states_sha256 }}
+      collection_sha256: ${{ steps.proof.outputs.collection_sha256 }}
+      cache_id: ${{ steps.proof.outputs.cache_id }}
+      scope_sha256: ${{ steps.proof.outputs.scope_sha256 }}
+    steps:
+      - name: stage reviewed proof reader outside original project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs
+          persist-credentials: false
+      - name: retain proof reader
+        run: cp scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs"
+      - name: checkout original c11 at the unchanged repository root
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          persist-credentials: false
+      - name: verify original Node declaration
+        run: test "$(tr -d '\r\n' < .nvmrc)" = 24.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - name: require approved full pins before the Action or project commands
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" preflight consumer "$RUNNER_TEMP/property47-packaged-proof-consumer"
+      - name: quod
+        uses: pango07/quod-action@0520117d99379472cd33dbb777f852d8a189a20a # reviewed built Action B required
+        with:
+          managed-vitest: 'matrix-property47'
+          managed-env: '{"NODE_ENV":"test"}'
+          managed-epoch: '1700000000000'
+          managed-seed: '42'
+          record: 'false'
+          cache-namespace: packaged-property47-${{ github.run_id }}-property47
+          cloud: 'false'
+          task-cache: 'false'
+      - name: verify actual shipped archive and safe runtime provenance
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" runtime consumer "$RUNNER_TEMP/property47-packaged-proof-consumer"
+      - name: install
+        run: npm ci
+      - name: build
+        run: npm run build
+      - name: test
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee "$RUNNER_TEMP/property47-packaged-proof-consumer/test.log"
+      - name: independently inspect full logical or native compatibility evidence before post
+        id: proof
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" after consumer "$RUNNER_TEMP/property47-packaged-proof-consumer"
+      - name: retain raw invocation evidence even after a diagnostic assertion failed
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" retain consumer "$RUNNER_TEMP/property47-packaged-proof-consumer"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-packaged-consumer
+          path: ${{ runner.temp }}/property47-packaged-proof-consumer/
+          if-no-files-found: error
+  packaged-property47-v0:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-packaged'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGED_ACTION_SHA: '0520117d99379472cd33dbb777f852d8a189a20a'
+      PACKAGED_SOURCE_SHA: 'f67fe14033de76f0b26b436cef4e5d50b0af1ee3'
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    outputs:
+      logical_sha256: ${{ steps.proof.outputs.logical_sha256 }}
+      file_states_sha256: ${{ steps.proof.outputs.file_states_sha256 }}
+      collection_sha256: ${{ steps.proof.outputs.collection_sha256 }}
+      cache_id: ${{ steps.proof.outputs.cache_id }}
+      scope_sha256: ${{ steps.proof.outputs.scope_sha256 }}
+    steps:
+      - name: stage reviewed proof reader outside original project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs
+          persist-credentials: false
+      - name: retain proof reader
+        run: cp scripts/bench-vitest/managed/quod-property47-packaged-proof-probe.cjs "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs"
+      - name: checkout original c11 at the unchanged repository root
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          persist-credentials: false
+      - name: verify original Node declaration
+        run: test "$(tr -d '\r\n' < .nvmrc)" = 24.18.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - name: require approved full pins before the Action or project commands
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" preflight v0 "$RUNNER_TEMP/property47-packaged-proof-v0"
+      - name: quod
+        uses: pango07/quod-action@0520117d99379472cd33dbb777f852d8a189a20a # reviewed built Action B required
+        with:
+          managed-vitest: 'v0'
+          managed-env: '{"NODE_ENV":"test"}'
+          managed-epoch: '1700000000000'
+          managed-seed: '42'
+          record: 'true'
+          cache-namespace: packaged-property47-${{ github.run_id }}-v0
+          cloud: 'false'
+          task-cache: 'false'
+      - name: verify actual shipped archive and safe runtime provenance
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" runtime v0 "$RUNNER_TEMP/property47-packaged-proof-v0"
+      - name: old-mode native JSON reporter evidence only
+        run: |
+          cat > "$RUNNER_TEMP/property47-packaged-v0-native-report.cjs" <<'JS'
+          const entry = process.argv[1] || ''
+          if (/(?:^|[\/])vitest(?:\.m?js)?$/.test(entry) && process.argv.includes('run'))
+            process.argv.push('--reporter=default', '--reporter=json', '--outputFile.json=' + process.env.BENCH_VITEST_REPORT)
+          JS
+          echo "BENCH_VITEST_REPORT=$RUNNER_TEMP/property47-packaged-proof-v0/original-native-report.json" >> "$GITHUB_ENV"
+      - name: install
+        run: npm ci
+      - name: build
+        run: npm run build
+      - name: test
+        env:
+          NODE_OPTIONS: --require=${{ runner.temp }}/property47-packaged-v0-native-report.cjs
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee "$RUNNER_TEMP/property47-packaged-proof-v0/test.log"
+      - name: independently inspect full logical or native compatibility evidence before post
+        id: proof
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" after v0 "$RUNNER_TEMP/property47-packaged-proof-v0"
+      - name: retain raw invocation evidence even after a diagnostic assertion failed
+        if: always()
+        run: node "$RUNNER_TEMP/quod-property47-packaged-proof-probe.cjs" retain v0 "$RUNNER_TEMP/property47-packaged-proof-v0"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-property47-packaged-v0
+          path: ${{ runner.temp }}/property47-packaged-proof-v0/
+          if-no-files-found: error
+
   benchmark-managed-property47-profile:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-profile'
     permissions:
