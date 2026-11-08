@@ -39,6 +39,12 @@ the card labels that limited sample. The existing test pages, savings model,
 rate settings and account features remain available. A configured runner
 rate alone does not establish net whole-job dollar savings.
 
+Usage uses the same duration and savings summary, history fallback and
+measurement coverage as Overview, alongside the team's plan. Its chart
+labels test-command time separately from step execution; neither proves
+whole-job or billed savings. Before Quod reports arrive, Usage retains the
+GitHub job-time view.
+
 Validation uses the Cloud gate for lint, Next type generation, TypeScript,
 the full Cloud test suite and production build. The separate preview gate renders the real summary
 component with illustrative data at desktop and mobile sizes; it does not
