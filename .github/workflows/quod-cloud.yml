@@ -1,4 +1,4 @@
-# Quod on Quod Cloud: this repository's own cheap checks through `quod run`
+# Quod on Quod Cloud: this repository's own Cloud checks through `quod run`
 # against api.quodci.com, as a customer's workflow would run them
 # (docs/getting-started.md). A push to main records as the team's writer
 # (refs/heads/main); a pull request reads main's results and records only in
@@ -18,6 +18,15 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
     paths: ['cloud/**', '.github/workflows/quod-cloud.yml', '.github/actions/setup/**']
   workflow_dispatch:
+    inputs:
+      warmup:
+        description: 'Run the four extra test/lint shadow commands on this VM (cannot combine with compare)'
+        type: boolean
+        default: false
+      compare:
+        description: 'Also run the same checks plain on a separate fresh runner (cannot combine with warmup)'
+        type: boolean
+        default: false
 
 concurrency:
   group: quod-cloud-${{ github.event.pull_request.number || github.ref }}
@@ -27,6 +36,11 @@ permissions:
   contents: read
   id-token: write   # GitHub OIDC for Quod Cloud (audience quodci)
 
+env:
+  CI: 'true'
+  LANG: C.UTF-8
+  TZ: UTC
+
 jobs:
   cloud:
     name: cloud (through quod)
@@ -34,10 +48,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Validate comparison inputs
+        env:
+          COMPARE: ${{ inputs.compare }}
+          WARMUP: ${{ inputs.warmup }}
+        run: |
+          if [ "$COMPARE" = true ] && [ "$WARMUP" = true ]; then
+            echo '::error::compare and warmup are mutually exclusive'
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
           toolchains: node
+          node-version: 24.22.2
+          version: quod-client-v0.2.0
+          sha256: 356d8197ca5f25447c1dfab1ea586db872649b0420bc104294de1d9988b55ee1
           # Repository variables (public values): the server and its pinned key.
           server: ${{ vars.QUOD_SERVER }}
           server-key: ${{ vars.QUOD_SERVER_KEY }}
@@ -49,6 +75,14 @@ jobs:
           key: npm-${{ hashFiles('cloud/package-lock.json') }}
       - run: npm ci
         working-directory: cloud
+      - name: npm run lint (through quod)
+        working-directory: cloud
+        run: quod run --toolchain node -- npm run lint
+      # Keep generation and its consumer in the same sandbox: without
+      # --outputs, a quod run intentionally discards its workspace writes.
+      - name: route types and TypeScript (through quod)
+        working-directory: cloud
+        run: quod run --toolchain node --step 'npx next typegen && npx tsc --noEmit'
       - name: npm test (through quod)
         working-directory: cloud
         # The repository's top level has no package.json, so the toolchain is named.
@@ -56,35 +90,90 @@ jobs:
         # runs (vitest prints the wall clock), the config loaded in place
         # (node_modules is sealed read-only; vite would bundle it there).
         run: quod run --toolchain node -- node scripts/vitest-quod.mjs
-      - name: npm run lint (through quod)
+      # next/font/google downloads Geist during this build. Keep the full
+      # native build until those network inputs have an offline closure;
+      # Quod's memoized steps do not permit network access.
+      - name: npm run build (native, Google Fonts)
         working-directory: cloud
-        run: quod run --toolchain node -- npm run lint
+        run: npm run build
       # GitHub's ubuntu-latest pool mixes CPU models (EPYC 7763, 9V74, 9V45,
       # Xeon 8370C, 8573C seen), and every step key pins the CPU's flags, so
-      # four jobs in a row on one model (record, two shadow audits, replay)
-      # are rare. When a step did not replay, run it twice more on this VM:
-      # each run is a full re-execution compared with the record (the
-      # shadow phase, spent here), and the next job on the same CPU model
-      # replays. Skipped when both steps replayed.
-      - name: shadow phase on this VM (when a step did not replay)
+      # matching jobs on one model are not guaranteed. The optional warmup
+      # calls the original test/lint commands twice more on this VM; the
+      # engine still decides whether each call executes, audits or replays.
+      # These four extra calls cost time, so they are manual opt-in only;
+      # they do not change the engine's audit or trust thresholds.
+      - name: optional shadow phase on this VM
+        if: github.event_name == 'workflow_dispatch' && inputs.warmup && !inputs.compare
         working-directory: cloud
         run: |
-          replayed=$(sudo jq -s '[.[] | select(.message == "run" and .outcome == "replayed")] | length' /var/lib/quod/events.jsonl)
-          if [ "$replayed" -ge 2 ]; then echo "both steps replayed"; exit 0; fi
           for i in 1 2; do
-            quod run --toolchain node -- node scripts/vitest-quod.mjs > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
-            quod run --toolchain node -- npm run lint > /dev/null 2> "$RUNNER_TEMP/l$i.err" || true
-            grep -h -E 'QUOD  [A-Z]|trust:' "$RUNNER_TEMP/t$i.err" "$RUNNER_TEMP/l$i.err" || true
+            quod run --toolchain node -- node scripts/vitest-quod.mjs
+            quod run --toolchain node -- npm run lint
           done
       - name: what quod did
         if: always()
+        env:
+          COMPARE: ${{ inputs.compare }}
+          WARMUP: ${{ inputs.warmup }}
         run: |
+          {
+            echo '### Cloud CI comparison scope'
+            echo 'Node 24.22.2; npm ci, lint, route generation, TypeScript, the complete Vitest suite, and the Next production build.'
+            echo "Plain comparison requested: ${COMPARE:-false}; optional four-command warmup requested: ${WARMUP:-false}."
+            echo "Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo 'Quod replay eligibility covers lint, route generation plus TypeScript, and the canonical full Vitest command. It does not skip the entire job.'
+            echo 'This uses the existing host-root fallback: no portable proof or fresh-runner replay is guaranteed.'
+            echo 'Complete job durations, including setup, installation, reporting and post steps, must be read from GitHub after both jobs finish. Command event totals below are diagnostics, not complete-job time or billed savings.'
+            echo 'The Next build always executes natively because it downloads Google Fonts; no Quod build replay is claimed.'
+          } >> "$GITHUB_STEP_SUMMARY"
           ev=/var/lib/quod/events.jsonl
           sudo test -f "$ev" || { echo "no quod events"; exit 0; }
           {
-            echo "### quod run ($(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs))"
+            echo "### Quod command events ($(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs))"
             echo "| step key | outcome | hit | candidates | first mismatch | total | recorded |"
             echo "|---|---|---|---|---|---|---|"
             sudo jq -r 'select(.message == "run" and .step_key) | "| `\(.step_key[0:15])` | \(.outcome) | \(.hit) | \(.candidates) | \(.first_mismatch // "") | \(.total_ms | floor) ms | \(.recorded_ms // "") |"' "$ev"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           sudo jq -c 'select(.message == "run")' "$ev"
+
+  baseline:
+    name: cloud (plain baseline)
+    if: github.event_name == 'workflow_dispatch' && inputs.compare && !inputs.warmup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # No Quod setup, OIDC token, or extra proof/warmup commands here.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('cloud/package-lock.json') }}
+      - run: npm ci
+        working-directory: cloud
+      - name: npm run lint (plain)
+        working-directory: cloud
+        run: npm run lint
+      - name: route types and TypeScript (plain)
+        working-directory: cloud
+        run: npx next typegen && npx tsc --noEmit
+      - name: npm test (plain)
+        working-directory: cloud
+        run: node scripts/vitest-quod.mjs
+      - name: npm run build (native, Google Fonts)
+        working-directory: cloud
+        run: npm run build
+      - name: comparison scope
+        if: always()
+        run: |
+          {
+            echo '### Plain Cloud CI baseline'
+            echo 'Same commit, Node 24.22.2, npm cache policy, installation and check commands as cloud (through quod), on a separate fresh runner; no Quod setup or extra warmup executions.'
+            echo "Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo 'Compare complete job durations only after GitHub has recorded both jobs and their post steps. Runner/CPU and dependency-cache differences remain part of the observed comparison; no savings are inferred here.'
+          } >> "$GITHUB_STEP_SUMMARY"
