@@ -45,8 +45,10 @@ and clean state on unchanged inputs, implementation changes, changed imported
 types, added erroneous files, deleted dependencies, generated type changes and
 compiler configuration changes. Every diagnostic and exit status must agree.
 Then three matched pairs run all real Cloud commands on independent runners:
-cold state (which also seeds Quod's cache), warm state and a small source
-change. Cache namespace is unique to that workflow run. No same-runner replay
+cold state (which also seeds Quod's cache), warm state and changed root-layout
+metadata. Both changed builds must contain the new metadata in their server
+output, guarding against a stale production build. Cache namespace is unique
+to that workflow run. No same-runner replay
 or repeated warmup commands occur in the matched jobs. The workflow waits for
 the seed job's post steps before starting consumers.
 

@@ -25,10 +25,16 @@ if (mode === 'plain' || phase === 'cold') {
 } else {
   assert(before && nextBefore, 'fresh runner did not restore both native caches');
 }
-// Both changed arms get exactly the same harmless source addition. It must
-// be discovered by lint/typecheck/tests/build with the original commands.
-if (phase === 'changed') fs.writeFileSync(path.join(root, 'lib/quod-incremental-fixture.ts'),
-  'export const incrementalFixture: number = 43;\n');
+// Change an actual build input, not an unused file. Both arms must produce
+// the new metadata even when one restored the previous production cache.
+const marker = 'Quod incremental invalidation control 43';
+if (phase === 'changed') {
+  const layout = path.join(root, 'app/layout.tsx');
+  const source = fs.readFileSync(layout, 'utf8');
+  const old = 'description: "See which CI steps Quod replayed, why, and how much time it saved."';
+  assert.equal(source.split(old).length, 2, 'fixed workload layout differs');
+  fs.writeFileSync(layout, source.replace(old, `description: "${marker}"`));
+}
 const report = {schema: 'quod-incremental-ci-v1', mode, phase, source: process.env.GITHUB_SHA,
   runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
   compilerStateBefore: before, nextStateBefore: nextBefore, commands: [], status: 'running'};
@@ -47,6 +53,12 @@ try {
   }
   report.compilerStateAfter = state();
   assert(report.compilerStateAfter, 'compiler did not persist native state');
+  if (phase === 'changed') {
+    const server = path.join(root, '.next/server');
+    const files = fs.readdirSync(server, {recursive: true}).filter(file => file.endsWith('.js'));
+    report.changedOutputPresent = files.some(file => fs.readFileSync(path.join(server, file), 'utf8').includes(marker));
+    assert.equal(report.changedOutputPresent, true, 'build returned stale layout metadata');
+  }
   report.status = 'success';
 } finally {
   fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
