@@ -37,17 +37,23 @@ def run(argv, cwd, env, log):
     return elapsed
 
 
-def event_lines(state, missing_ok=False):
-    path = state / "events.jsonl"
+def read_private(path, missing_ok=False):
     # The normal setup keeps /var/lib/quod private to root. Read only this
     # experiment's event data; do not relax state or sandbox permissions.
     result = subprocess.run(["sudo", "-n", "cat", str(path)], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=10)
     if result.returncode and missing_ok and b"No such file or directory" in result.stderr:
-        return []
+        return b""
     assert result.returncode == 0, "could not read experiment events"
     assert len(result.stdout) <= 8 * 1024 * 1024, "unexpected diagnostic size"
-    lines = result.stdout.decode().splitlines()
+    return result.stdout
+
+
+def event_lines(state, missing_ok=False):
+    data = read_private(state / "events.jsonl", missing_ok)
+    if not data:
+        return []
+    lines = data.decode().splitlines()
     assert all(len(line) <= 256 * 1024 for line in lines), "unbounded event"
     return lines
 
@@ -73,13 +79,16 @@ def observed(quod, repo, out, state, mode, label, command):
     before = len(event_lines(state, missing_ok=True))
     env = os.environ.copy()
     env.update(QUOD_HOME=str(state), QUOD_MODE="observe")
-    argv = [str(quod), "run", "--toolchain", "node"]
+    argv = [str(quod), "run", "--toolchain", "node", "--diagnose-inputs"]
     if mode == "serial":
         argv.append("--serial-preparation")
     argv.extend(["--step", command])
     log = out / f"{label}.log"
     wall = run(argv, repo / "cloud", env, log)
     row, pin, _ = event(state, before)
+    run_id = row["run_id"]
+    assert len(run_id) == 26 and run_id.isalnum(), "invalid diagnostic identity"
+    diagnostic = json.loads(read_private(state / "diagnostics" / f"{run_id}.json"))
     assert row["end_to_end_ms"] <= wall + 50, "internal wall time exceeds process time"
     result = {
         "label": label, "preparation": mode, "wall_ms": wall,
@@ -87,10 +96,15 @@ def observed(quod, repo, out, state, mode, label, command):
         "step_key": row["step_key"], "image": row["image"],
         "manifest_id": row["manifest_id"], "outcome": row["outcome"],
         "candidates": row["candidates"],
+        "input_tree": diagnostic["input_tree"],
+        "stdout_hash": diagnostic["stdout"], "stderr_hash": diagnostic["stderr"],
+        "outputs_hash": diagnostic["outputs"], "root_outputs_hash": diagnostic["root_outputs"],
+        "diagnostics_ms": row["diagnostics_ms"],
         **{field: row[field] for field in TIMINGS},
         **{field: pin[field] for field in ("fingerprint_ms", "platform_ms")},
     }
     print(json.dumps(result), flush=True)
+    result["_manifest"] = diagnostic["manifest"]
     return result, log
 
 
@@ -128,7 +142,24 @@ def main():
             row["state"] = warmth
             rows.append(row)
         last_state = state
-    # Scheduling must leave the key, environment and observed inputs intact.
+    # Diagnose any read-set variation, including between serial controls.
+    # Keep the original manifest identity guard pending a classified cause.
+    reference = {(entry["p"], entry["k"]): entry for entry in rows[0]["_manifest"]["entries"]}
+    for row in rows[1:]:
+        current = {(entry["p"], entry["k"]): entry for entry in row["_manifest"]["entries"]}
+        added, removed = current.keys() - reference.keys(), reference.keys() - current.keys()
+        changed = [key for key in current.keys() & reference.keys() if current[key] != reference[key]]
+        sample = [{"path": key[0][:200], "kind": key[1], "change": kind}
+                  for kind, keys in (("added", sorted(added)), ("removed", sorted(removed)),
+                                     ("changed", sorted(changed))) for key in keys][:16]
+        print(json.dumps({"label": row["label"], "manifest_delta": {
+            "added": len(added), "removed": len(removed), "changed": len(changed),
+            "samples": sample}}), flush=True)
+    for row in rows:
+        del row["_manifest"]
+    # Scheduling must leave the entire input tree, key and environment intact.
+    for field in ("input_tree", "stdout_hash", "stderr_hash", "outputs_hash", "root_outputs_hash"):
+        assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
     for field in ("step_key", "image", "manifest_id"):
         assert len({row[field] for row in rows}) == 1, f"{field} changed between controls"
     baseline.append(run(["npm", "run", "lint"], repo / "cloud", os.environ.copy(),

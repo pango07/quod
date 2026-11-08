@@ -43,3 +43,13 @@ Cloud metadata registration, checkout import and end-to-end command time.
 Some phases overlap and cannot be added. The existing `total_ms` field
 keeps its prior meaning for compatibility. The outer process timer remains
 the comparison's wall-clock measurement, including all preparation.
+
+The first measured control retained matching step keys and images but
+produced different manifest IDs in some executions, including repeated
+serial controls. Its identity guard failed, so the scheduling change is
+not released. Opt-in `--diagnose-inputs` now writes bounded input metadata
+and output hashes into the private state directory; no file contents or
+environment values are exported. The control compares entire input-tree
+and output hashes and prints only bounded read-set differences before the
+original manifest-identity guard. This classifies the variation without
+relaxing validation to obtain a passing benchmark.

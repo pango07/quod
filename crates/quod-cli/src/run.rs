@@ -109,6 +109,10 @@ pub struct RunArgs {
     /// Changes scheduling only; the step key and proof checks are unchanged.
     #[arg(long, hide = true)]
     serial_preparation: bool,
+    /// Diagnostic only: save input metadata and output hashes in the
+    /// private state directory. No file contents or environment values.
+    #[arg(long, hide = true)]
+    diagnose_inputs: bool,
     #[command(flatten)]
     policy: PolicyArgs,
     /// Kill the step after this long (30m, 2s, 1h; 0 for no limit). A
@@ -129,6 +133,7 @@ pub(crate) struct Phases {
     environment: Duration,
     checkout: Duration,
     metadata: Duration,
+    diagnostics: Duration,
     import: Duration,
     lookup: Duration,
     mount: Duration,
@@ -751,6 +756,27 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         duration_ms: ex.wall.as_millis() as u64,
         commands: vec![],
     };
+    if args.diagnose_inputs {
+        let diagnostic_start = Instant::now();
+        let entries = tree.iter().collect::<Vec<_>>();
+        let input_tree = Hash::of(&quod_cas::canonical_json(&entries)?);
+        let compared = compared_only(&without_forbidden(spec.profile(), &result), &ignore);
+        let diagnostic = serde_json::json!({
+            "v": 1,
+            "input_tree": input_tree,
+            "manifest": &ex.manifest,
+            "stdout": compared.stdout,
+            "stderr": compared.stderr,
+            "outputs": Hash::of(&quod_cas::canonical_json(&compared.outputs)?),
+            "root_outputs": Hash::of(&quod_cas::canonical_json(&compared.root_outputs)?),
+        });
+        let bytes = quod_cas::canonical_json(&diagnostic)?;
+        anyhow::ensure!(bytes.len() <= 8 << 20, "input diagnostic exceeded 8 MiB");
+        let diagnostics = state.dir.join("diagnostics");
+        std::fs::create_dir_all(&diagnostics)?;
+        std::fs::write(diagnostics.join(format!("{}.json", info.run_id)), bytes)?;
+        phases.diagnostics = diagnostic_start.elapsed();
+    }
     // One transaction: the trust layer's verdict (proof streak, trust
     // state, audit row), the run row (with the transport that observed it,
     // which results_by_transport and purge_transport find results through),
@@ -1530,6 +1556,7 @@ fn emit_event(
         environment_ms = ms(p.environment),
         checkout_import_ms = ms(p.checkout),
         metadata_ms = ms(p.metadata),
+        diagnostics_ms = ms(p.diagnostics),
         import_ms = ms(p.import),
         lookup_ms = ms(p.lookup),
         mount_ms = ms(p.mount),
