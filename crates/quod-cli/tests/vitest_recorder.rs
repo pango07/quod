@@ -361,6 +361,7 @@ console.log(JSON.stringify(out))
             &format!("d:{fixed}"),
             &format!("e:{fixed}"),
             &format!("e:{fixed}/after"),
+            &format!("sl:{fixed}"),
         ],
         "creation and removal must not suppress any observation"
     );
