@@ -101,13 +101,19 @@ hung job cannot burn hours.
 
 ## Quod on this repository's Cloud checks
 
-`quod-cloud.yml` runs the real Cloud lint, route generation and TypeScript
+`quod-cloud.yml` runs every normal Cloud check natively on pushes and pull
+requests. Fresh-runner Quod reuse is not yet demonstrated, so routine CI
+pays no Quod installation, observation or recording cost. Its job is named
+`cloud (native fallback)` and remains visible through the linked GitHub App;
+this path claims no Quod replay or savings.
+
+Explicit manual runs retain the real Cloud lint, route generation and TypeScript
 checks, and the complete Vitest suite through the pinned released Quod client.
 Route generation and TypeScript share one sandbox because Quod discards a
 step's workspace writes by default. `npm ci` and the Next production build
 run normally; the build currently downloads Google Fonts. No build replay
 is claimed. The four extra shadow test/lint commands are manual `warmup`
-only, disabled for normal CI.
+only. Only these explicit Quod runs receive a Quod Cloud OIDC token.
 
 To observe the total cost of using Quod, dispatch one matched comparison:
 

@@ -1,10 +1,7 @@
-# Quod on Quod Cloud: this repository's own Cloud checks through `quod run`
-# against api.quodci.com, as a customer's workflow would run them
-# (docs/getting-started.md). A push to main records as the team's writer
-# (refs/heads/main); a pull request reads main's results and records only in
-# its own ref's scope. The run's results show on app.quodci.com under the
-# quodci team. Independent of the gates (gate.yml): its own concurrency
-# group, and nothing here gates a merge.
+# Routine Cloud checks run natively while fresh-runner reuse is unproven.
+# Explicit manual runs retain the real Quod recording/comparison path
+# against api.quodci.com. The GitHub App shows normal CI in Quod Cloud;
+# native fallback claims no replay or Quod savings. Independent of gate.yml.
 name: quod-cloud
 
 # Only when cloud/ (or this workflow, or the setup action it uses) changed;
@@ -34,7 +31,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write   # GitHub OIDC for Quod Cloud (audience quodci)
 
 env:
   CI: 'true'
@@ -44,9 +40,12 @@ env:
 jobs:
   cloud:
     name: cloud (through quod)
-    if: github.event.pull_request.draft != true
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write   # Only explicit Quod runs need its Cloud OIDC token.
     steps:
       - name: Validate comparison inputs
         env:
@@ -138,8 +137,8 @@ jobs:
           sudo jq -c 'select(.message == "run")' "$ev"
 
   baseline:
-    name: cloud (plain baseline)
-    if: github.event_name == 'workflow_dispatch' && inputs.compare && !inputs.warmup
+    name: ${{ github.event_name == 'workflow_dispatch' && 'cloud (plain baseline)' || 'cloud (native fallback)' }}
+    if: github.event.pull_request.draft != true && (github.event_name != 'workflow_dispatch' || (inputs.compare && !inputs.warmup))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # No Quod setup, OIDC token, or extra proof/warmup commands here.
@@ -170,10 +169,18 @@ jobs:
         run: npm run build
       - name: comparison scope
         if: always()
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           {
-            echo '### Plain Cloud CI baseline'
-            echo 'Same commit, Node 24.22.2, npm cache policy, installation and check commands as cloud (through quod), on a separate fresh runner; no Quod setup or extra warmup executions.'
+            if [ "$EVENT" = workflow_dispatch ]; then
+              echo '### Plain Cloud CI baseline'
+              echo 'Same commit, Node 24.22.2, npm cache policy, installation and check commands as cloud (through quod), on a separate fresh runner; no Quod setup or extra warmup executions.'
+            else
+              echo '### Native Cloud CI fallback'
+              echo 'Fresh-runner replay benefit is unproven. Run every normal check without Quod setup, observation or recording overhead.'
+              echo 'No Quod replay or savings claimed. Explicit manual Quod recording and matched comparisons remain available.'
+            fi
             echo "Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo 'Compare complete job durations only after GitHub has recorded both jobs and their post steps. Runner/CPU and dependency-cache differences remain part of the observed comparison; no savings are inferred here.'
           } >> "$GITHUB_STEP_SUMMARY"
