@@ -100,7 +100,7 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
         <section className="card" aria-labelledby="latest-h" style={{ overflow: "hidden" }}>
           <div className="card-head ruled">
             <h2 id="latest-h" className="h2">
-              {latestTest ? "Latest step run" : "Latest run"}
+              Latest step run
             </h2>
             {run ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -146,8 +146,8 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
                     {run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Running"}
                   </span>
                 </Fact>
-                <Fact k="Duration">
-                  {formatDuration(run.tookSeconds)} <span className="faint">instead of {formatDuration(run.wouldHaveTakenSeconds)}</span>
+                <Fact k="Step execution">
+                  {formatDuration(run.tookSeconds)} <span className="faint">· {formatDuration(run.wouldHaveTakenSeconds)} without replay (estimated)</span>
                 </Fact>
                 <Fact k="Runner">
                   <span className="mono">{run.runner}</span>
@@ -182,23 +182,23 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
         <section className="card" aria-labelledby="time-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="row-between">
             <h2 id="time-h" className="h2">
-              Run time, last {repo.runTimes.length} runs on {repo.defaultBranch}
+              Step execution, last {repo.runTimes.length} runs on {repo.defaultBranch}
             </h2>
             <div className="legend" aria-hidden="true">
               <span>
                 <span className="swatch" style={{ background: "var(--text)" }} />
-                With Quod
+                Observed steps
               </span>
               <span>
                 <span className="swatch" style={{ border: "1px dashed #666" }} />
-                Without (recorded)
+                Without replay (estimated)
               </span>
             </div>
           </div>
           <RunTimeChart runs={repo.runTimes} />
           <p className="muted" style={{ fontSize: 13 }}>
-            Median run: <span style={{ color: "var(--text)" }}>{formatDuration(withQ)}</span> with Quod, <span style={{ color: "var(--text)" }}>{formatDuration(without)}</span> without.
-            {repo.summary.language === "Rust" ? " Docs-only commits replay almost everything; commits that change Rust code still build." : " Commits that change only docs replay almost everything; code changes still run the steps that read them."}
+            Median step execution: <span style={{ color: "var(--text)" }}>{formatDuration(withQ)}</span> observed, <span style={{ color: "var(--text)" }}>{formatDuration(without)}</span> without replay (estimated).
+            {" "}These totals cover reported Quod commands, excluding other work in the job. They are separate from complete GitHub job durations.
           </p>
         </section>
       ) : null}

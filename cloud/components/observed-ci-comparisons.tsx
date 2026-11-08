@@ -11,19 +11,19 @@ export function ObservedCiComparisons({ data }: { data: ComparisonData }) {
         Times include setup, install and cleanup. Separate runners and cache conditions can affect the difference.
       </p>
       {data.pairs.length ? (
-        <div className="scroll"><table>
+        <div className="data-table" style={{ padding: "0 20px" }}><div className="scroll"><table style={{ minWidth: 760 }}>
           <caption className="sr-only">Observed complete job durations, without estimated baselines</caption>
           <thead><tr><th scope="col">Source</th><th scope="col">Through Quod</th><th scope="col">Plain baseline</th><th scope="col">Observed difference</th><th scope="col">Runner compute cost</th></tr></thead>
           <tbody>{data.pairs.map(pair => (
             <tr key={`${pair.runId}-${pair.attempt}`}>
-              <td><a className="link-muted mono" href={`https://github.com/pango07/quod/commit/${pair.sha}`}>{shortSha(pair.sha)}</a><br /><a className="link-muted" href={pair.runUrl}>Run {pair.runId} · attempt {pair.attempt}</a><span className="cell-sub"><time dateTime={pair.finishedAt}>{pair.finishedAt.slice(0, 10)} UTC</time></span></td>
-              <td><a href={pair.candidate.url}>{pair.candidate.seconds}s</a><span className="cell-sub">{formatDuration(pair.candidate.seconds)}</span></td>
-              <td><a href={pair.baseline.url}>{pair.baseline.seconds}s</a><span className="cell-sub">{formatDuration(pair.baseline.seconds)}</span></td>
+              <td><a className="link-muted mono" href={`https://github.com/pango07/quod/commit/${pair.sha}`}>{shortSha(pair.sha)}</a><br /><a className="link-muted" href={pair.runUrl}>Run {pair.runId} · attempt {pair.attempt}</a><div className="cell-sub"><time dateTime={pair.finishedAt}>{pair.finishedAt.slice(0, 10)} UTC</time></div></td>
+              <td><a href={pair.candidate.url}>{pair.candidate.seconds}s</a><div className="cell-sub">{formatDuration(pair.candidate.seconds)}</div></td>
+              <td><a href={pair.baseline.url}>{pair.baseline.seconds}s</a><div className="cell-sub">{formatDuration(pair.baseline.seconds)}</div></td>
               <td>{formatDuration(Math.abs(pair.savedSeconds))} {pair.savedSeconds < 0 ? "more" : pair.savedSeconds > 0 ? "less" : "difference"}</td>
               <td>{pair.cost === "public-standard-free" ? "$0.00 each · $0.00 saved" : "Measuring"}</td>
             </tr>
           ))}</tbody>
-        </table></div>
+        </table></div></div>
       ) : <p className="muted" style={{ padding: "0 20px" }}>{data.available ? "Waiting for a completed comparison. Run quod-cloud manually with compare enabled; both jobs must succeed in the same attempt." : "GitHub comparison data is temporarily unavailable."}</p>}
       <p className="muted" style={{ padding: "0 20px 16px", fontSize: 13, lineHeight: 1.6 }}>
         Latest 100 repository runs in this range; up to 12 completed manual runs inspected. No historical baseline is inferred.

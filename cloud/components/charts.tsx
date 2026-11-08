@@ -78,9 +78,9 @@ export function RunTimeChart({ runs }: { runs: RunTimePoint[] }) {
   const max = Math.max(1, ...runs.map((r) => r.withoutSeconds));
   return (
     <>
-      <ol className="chart short" aria-label="Run time per run, with Quod and without">
+      <ol className="chart short" aria-label="Step execution per run, observed and without replay estimated">
         {runs.map((r, i) => {
-          const label = `Run #${r.number}: ${formatDuration(r.withQuodSeconds)} with Quod, ${formatDuration(r.withoutSeconds)} without`;
+          const label = `Run #${r.number}: ${formatDuration(r.withQuodSeconds)} observed step execution, ${formatDuration(r.withoutSeconds)} without replay estimated`;
           return (
             <li
               key={r.number}
@@ -92,7 +92,7 @@ export function RunTimeChart({ runs }: { runs: RunTimePoint[] }) {
               <span className="tip" aria-hidden="true">
                 <strong>Run #{r.number}</strong>
                 <br />
-                {formatDuration(r.withQuodSeconds)} with Quod · {formatDuration(r.withoutSeconds)} without
+                {formatDuration(r.withQuodSeconds)} observed · {formatDuration(r.withoutSeconds)} without replay (estimated)
               </span>
               <span className="fill" style={{ height: `${Math.min(100, (r.withQuodSeconds / r.withoutSeconds) * 100).toFixed(2)}%` }} />
             </li>
@@ -103,12 +103,12 @@ export function RunTimeChart({ runs }: { runs: RunTimePoint[] }) {
         <summary>Show the numbers</summary>
         <div className="scroll">
           <table>
-            <caption className="sr-only">Run time per run</caption>
+            <caption className="sr-only">Step execution per run</caption>
             <thead>
               <tr>
                 <th scope="col">Run</th>
-                <th scope="col">With Quod</th>
-                <th scope="col">Without (recorded)</th>
+                <th scope="col">Observed steps</th>
+                <th scope="col">Without replay (estimated)</th>
               </tr>
             </thead>
             <tbody>
