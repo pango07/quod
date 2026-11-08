@@ -462,14 +462,15 @@ jobs:
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: '24'
+          node-version: '24.18.0'
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           shared-key: lint
           cache-on-failure: true
-      - name: format and preserve any correction
+      - name: Check formatting without changing reviewed source
         run: |
-          cargo fmt --all
+          cargo fmt --all --check
+          git diff --exit-code
           git diff -- '*.rs' > /tmp/benchmark-fmt.patch
       - name: CLI unit tests and recorder regressions
         run: cargo test --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e

@@ -50,15 +50,11 @@ const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
 const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null, booleanProof = null, statProof = booleanProof }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode, namesProof = null, booleanProof = null, statProof = booleanProof }) {
   const keys = new Set()
-  // A made directory's other spelling (its real path, and back), when they differ.
-  const alias = new Map()
-  // A path under a made directory is this process's own output, not an input.
-  const under = (p) => r.made.some((m) => p === m || p.startsWith(`${m}/`))
   // (kind, absolute path) pairs whose key is in: a repeated read adds
-  // nothing. Marked only once added (a path under a made directory, a
-  // relative path, a main-process package.json are worked out every time).
+  // nothing. Marked only once added (a relative path and a main-process
+  // package.json are worked out every time).
   const seen = new Set()
   // vitest's own per-run directories (the driver's QUOD_VITEST_SKIP, one per
   // line): vitest 3 hands a worker each transformed module as a file in its
@@ -103,36 +99,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     // main process: where tsconfck's walks started (rj: keys)
     rjRoots: [],
     unobservable: new Set(),
-    // Directories this process created (mkdir, recursive mkdir, mkdtemp)
-    // outside the workspace, while recording: what is under one is the
-    // file's own output, not an input. Nothing under it existed before it
-    // was made, so a read there cannot depend on anything but this run.
-    // Without a workspace root (wsRoot, with a trailing slash) none count.
-    made: [],
     on: true,
-    created(p) {
-      if (!r.on || !wsRoot || p == null) return
-      p = norm(p)
-      if (p == null || p === '/' || `${p}/`.startsWith(wsRoot) || under(p)) return
-      r.made.push(p)
-      // and the same directory by its real path (macOS: /var is /private/var)
-      try {
-        const rp = real.realpathSync(p)
-        if (rp !== p && !`${rp}/`.startsWith(wsRoot)) {
-          r.made.push(rp)
-          alias.set(p, rp)
-          alias.set(rp, p)
-        }
-      } catch {}
-    },
-    // Removed or moved away: what appears there later is not its own.
-    gone(p) {
-      p = norm(p)
-      if (p == null) return
-      const out = new Set(r.made.filter((m) => m === p || m.startsWith(`${p}/`)))
-      for (const m of [...out]) if (alias.has(m)) out.add(alias.get(m))
-      r.made = r.made.filter((m) => !out.has(m))
-    },
     add(kind, p) {
       if (!r.on || p == null) return
       if (kind === 'rp') {
@@ -167,7 +134,6 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       // Optional diagnostic observer. It cannot suppress a dependency if
       // collecting diagnostic evidence itself fails.
       try { r.observeRead?.(kind, p) } catch {}
-      if (r.made.length && under(p)) return
       if (skip.length && skip.some((d) => p.startsWith(d))) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
       // vitest 5's API token (the UI/API server's auth: a random id it
@@ -589,27 +555,17 @@ export function patchFs(r, { sync = true } = {}) {
     w0,
   )
   wrap(fs, 'createWriteStream', w0)
-  // A directory the file creates is its own (see `made`): a plain mkdir
-  // made its path, a recursive one returns the first it made (none if all
-  // existed), mkdtemp returns the one it made.
-  both(['mkdir'], w0, (a, v) => {
-    const o = a[1]
-    r.created(o && typeof o === 'object' && o.recursive ? v : a[0])
-  })
-  const temp = (a, v) => r.created(typeof v === 'string' ? v : v?.path)
-  both(['mkdtemp'], w0, temp)
-  wrap(fs, 'mkdtempDisposableSync', w0, temp)
-  wrap(P, 'mkdtempDisposable', w0, temp)
-  // Once removed or moved away (after the call: its own lstat of the
-  // directory is still the file's), the directory is no longer its own.
-  const gone = (a) => r.gone(a[0])
-  both(['rm', 'rmdir'], w0, gone)
+  // Creation does not authorize suppressing later reads or watches, and
+  // these operations need no post-call argument evaluation.
+  both(['mkdir', 'mkdtemp', 'rm', 'rmdir'], w0)
+  wrap(fs, 'mkdtempDisposableSync', w0)
+  wrap(P, 'mkdtempDisposable', w0)
   const move = (a) => {
     r.add('f', a[0])
     r.write(a[0])
     r.write(a[1])
   }
-  both(['rename'], move, gone)
+  both(['rename'], move)
   const copy = (a) => {
     r.add('f', a[0])
     r.add('r', a[0])
@@ -617,11 +573,11 @@ export function patchFs(r, { sync = true } = {}) {
   }
   both(['copyFile', 'cp', 'link', 'symlink'], copy)
   // A watch sees whatever lands under its path, for as long as it lives:
-  // the driver keys it as the path's whole recursive content at the end
-  // of the file (or not at all, under a directory the file created).
+  // the driver keys its whole recursive content at the end of the file,
+  // including paths under a directory this process created.
   const watch = (a) => {
     const p = norm(a[0])
-    if (p && r.on && !(r.made.length && under(p))) r.watches.add(p)
+    if (p && r.on) r.watches.add(p)
   }
   wrap(fs, 'watch', watch)
   wrap(fs, 'watchFile', watch)

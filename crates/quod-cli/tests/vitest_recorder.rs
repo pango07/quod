@@ -263,13 +263,11 @@ console.log(JSON.stringify([process.env.QUOD_T, process.env.QUOD_U ?? null]))
 }
 
 #[test]
-fn reads_under_a_directory_the_file_made_outside_the_workspace_are_not_keyed() {
-    // A test that makes a temp directory (mkdtemp under the OS temp dir,
-    // a random path every run) and reads inside it reads its own output:
-    // keying those reads made the file run every time (vuejs/router's
-    // RoutesFolderWatcher.spec.ts). A path that existed before, a check
-    // made before the directory existed or after it was removed, and
-    // anything under a directory made inside the workspace stay keyed.
+fn reads_under_a_directory_the_file_made_outside_the_workspace_are_keyed() {
+    // Creation alone cannot prove that a later observation is independent:
+    // metadata can vary, and links or imported files can reach other inputs.
+    // Preserve every read and watch, including before creation, after removal,
+    // and inside or outside the workspace.
     if Command::new("node").arg("--version").output().is_err() {
         eprintln!("no node: skipped");
         return;
@@ -304,13 +302,13 @@ fs.watch(a).close()
 const b = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quod-own-'))
 made.push(b)
 await fs.promises.readdir(b)
-// its teardown removing it (rm reads the directory) is its own too
+// teardown must not erase earlier directory reads
 fs.rmSync(b, {{ recursive: true }})
 const c = await new Promise((res, rej) => fs.mkdtemp(path.join(os.tmpdir(), 'quod-own-'), (e, d) => (e ? rej(e) : res(d))))
 made.push(c)
 fs.readdirSync(c)
-// a fixed path: checked before it existed (kept), made, listed (not
-// kept), removed, checked again (kept)
+// a fixed path: checks before creation, a listing after creation, and
+// checks after removal all remain keyed
 const fixed = path.join(os.tmpdir(), `quod-fixed-${{process.pid}}-${{Date.now()}}`)
 fs.existsSync(fixed)
 fs.mkdirSync(fixed)
@@ -343,23 +341,53 @@ console.log(JSON.stringify(out))
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let keys: Vec<String> = serde_json::from_value(v["keys"].clone()).unwrap();
     let made: Vec<String> = serde_json::from_value(v["made"].clone()).unwrap();
-    for m in &made[..3] {
-        assert!(
-            !keys.iter().any(|k| k.contains(m.as_str())),
-            "{m} is the file's own output: {keys:?}"
-        );
+    for (kind, p) in [
+        ("f", format!("{}/test-0/src/pages/index.vue", made[0])),
+        ("sm", format!("{}/test-0/src", made[0])),
+        ("d", format!("{}/test-0/src/pages", made[0])),
+        ("e", format!("{}/nope", made[0])),
+        ("r", made[0].clone()),
+        ("d", made[1].clone()),
+        ("d", made[2].clone()),
+    ] {
+        assert!(keys.contains(&format!("{kind}:{p}")), "{keys:?}");
     }
-    assert_eq!(v["watches"], serde_json::json!([]));
+    assert_eq!(v["watches"], serde_json::json!([made[0]]));
     let fixed = &made[3];
     let kept: Vec<&String> = keys.iter().filter(|k| k.contains("quod-fixed-")).collect();
     assert_eq!(
         kept,
-        vec![&format!("e:{fixed}"), &format!("e:{fixed}/after")],
-        "before it was made and after it was removed it is not the file's"
+        vec![
+            &format!("d:{fixed}"),
+            &format!("e:{fixed}"),
+            &format!("e:{fixed}/after"),
+        ],
+        "creation and removal must not suppress any observation"
     );
     let b = base.display().to_string();
     assert!(keys.contains(&format!("f:{b}/pre/x.txt")), "{keys:?}");
     assert!(keys.contains(&format!("d:{b}/ws/src/made")), "{keys:?}");
+}
+
+#[test]
+fn fresh_directory_observations_keep_native_dependencies() {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let regression =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/owned-directory-record.test.mjs");
+    let out = Command::new("node")
+        .arg("--test")
+        .arg(regression)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
