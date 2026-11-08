@@ -61,6 +61,99 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  benchmark-managed-inherited-listener:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-inherited-listener'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Retain source-only default-body inverse and finite protocol pins
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/inherited-listener-controls"
+          git fetch --no-tags --depth=1 origin f67fe14033de76f0b26b436cef4e5d50b0af1ee3
+          git show f67fe14033de76f0b26b436cef4e5d50b0af1ee3:scripts/bench-vitest/managed/executor.mjs > "$RUNNER_TEMP/inherited-listener-controls/original-executor.mjs"
+          git rev-parse HEAD > "$RUNNER_TEMP/inherited-listener-controls/source-pin.txt"
+          cp scripts/bench-vitest/managed/executor.mjs scripts/bench-vitest/managed/inherited-listener-executor.mjs scripts/bench-vitest/managed/inherited-listener-probe.mjs "$RUNNER_TEMP/inherited-listener-controls/"
+          python3 - <<'PYLEASE'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('scripts/bench-vitest/managed')
+          controls = Path(os.environ['RUNNER_TEMP']) / 'inherited-listener-controls'
+          old = (controls / 'original-executor.mjs').read_text()
+          new = (root / 'executor.mjs').read_text()
+          branch = "    if (listenerMode === INHERITED_LISTENER_MODE) return executeInheritedManaged({name, bundle, out, workerd,\n      runtimePolicy, host, onPhase, denyModule, compatibilityDate, compatibilityFlags, startupAttempts,\n      healthTimeoutMs, startupRetryMs, shutdownGraceMs, responseBytesMax, watchdogMs})\n"
+          assert new.count(branch) == 1
+          assert old.split('  async function execute(name, bundle) {\n',1)[1] == new.split('  async function execute(name, bundle) {\n',1)[1].replace(branch,'',1)
+          for name, digest in {'compiler.mjs':'a87f1f8fafea2e0f1b4a1e299199f5581172a2fe90f59882d3c64eb50f68acaf', 'resolved-compile-certificate.mjs':'f01cd9a55f6eceb913c5b402481fd6b6dd7266191d8182f97ca60f158765c703'}.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          evidence = {'schema':'quod-inherited-listener-default-body-inverse-v1','passed':True,'base':'f67fe14033de76f0b26b436cef4e5d50b0af1ee3','files':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ['executor.mjs','inherited-listener-executor.mjs','inherited-listener-probe.mjs','compiler.mjs','resolved-compile-certificate.mjs']}}
+          (controls / 'source-inverse.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          PYLEASE
+      - name: Check exact private inherited ownership, distinct payloads and settled failure cleanup
+        run: >-
+          node scripts/bench-vitest/managed/inherited-listener-probe.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/inherited-listener-proof"
+      - name: Require the complete22 transport checks and all7 opted-in case records
+        shell: bash
+        run: |
+          python3 - <<'PYRESULT'
+          import json, os
+          from pathlib import Path
+          value = json.loads((Path(os.environ['RUNNER_TEMP']) / 'inherited-listener-proof/result.json').read_text())
+          assert value['passed'] is True and value['actualSdkAuthenticationClaimed'] is False and value['dispatcherConcurrencyEnabled'] is False
+          assert value['expectedCheckCount'] == value['checkCount'] == len(value['checks']) == 22
+          assert all(row['pass'] is True for row in value['checks'])
+          assert len(value['cases']) == 7 and all(row['listener']['cleanupCompleted'] is True for row in value['cases'])
+          PYRESULT
+      - name: Bound and hash both data roles even on failure
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          for role in inherited-listener-controls inherited-listener-proof; do
+            if test -d "$RUNNER_TEMP/$role"; then
+              node scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs --bounds "$RUNNER_TEMP/$role" || failed=1
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-inherited-listener-controls
+          path: ${{ runner.temp }}/inherited-listener-controls
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-inherited-listener-proof
+          path: ${{ runner.temp }}/inherited-listener-proof
+          retention-days: 7
+
   benchmark-managed-property47-profile:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-property47-profile'
     permissions:

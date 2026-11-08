@@ -10,6 +10,7 @@ import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
 import {spawn} from 'node:child_process'
 import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from './receipt.mjs'
+import {INHERITED_LISTENER_MODE, inheritedListenerPolicy, executeInheritedManaged} from './inherited-listener-executor.mjs'
 
 const require = createRequire(import.meta.url)
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
@@ -71,7 +72,7 @@ async function responseBytes(response) {
  * probe row only after the response, child termination and watchdog checks pass.
  * Both returned identity objects contain data only and are deeply immutable.
  */
-export function createManagedExecutor({out: outArg, onPhase, watchdogMs = 180000}) {
+export function createManagedExecutor({out: outArg, onPhase, watchdogMs = 180000, listenerMode}) {
   assert(typeof outArg === 'string' && outArg.length, 'an explicit output directory is required')
   const out = fs.realpathSync(path.resolve(outArg))
   assert(fs.statSync(out).isDirectory(), 'executor output directory must already exist')
@@ -79,6 +80,7 @@ export function createManagedExecutor({out: outArg, onPhase, watchdogMs = 180000
   assert(Number.isSafeInteger(watchdogMs) && watchdogMs > 0 && watchdogMs <= 2147483647,
     'watchdogMs must fit a positive native timer')
   assert(typeof process.env.PATH === 'string', 'an explicit child PATH is required')
+  assert(listenerMode === undefined || listenerMode === INHERITED_LISTENER_MODE, 'unknown managed listener mode')
   const workerd = fs.realpathSync(path.join(path.dirname(require.resolve('workerd/package.json')), 'bin/workerd'))
   const processEnv = {PATH: process.env.PATH, TZ: 'UTC', LANG: 'C.UTF-8'}
   const host = hostIdentity()
@@ -107,10 +109,15 @@ export function createManagedExecutor({out: outArg, onPhase, watchdogMs = 180000
       shutdownGraceMs,
       responseBytesMax,
       completionBounds: {...completionBounds},
+      ...(listenerMode === undefined ? {} : {listenerProtocol: inheritedListenerPolicy({
+        packageVersion: require('workerd/package.json').version, workerdSha256: sha(fs.readFileSync(workerd))})}),
     },
   })
 
   async function execute(name, bundle) {
+    if (listenerMode === INHERITED_LISTENER_MODE) return executeInheritedManaged({name, bundle, out, workerd,
+      runtimePolicy, host, onPhase, denyModule, compatibilityDate, compatibilityFlags, startupAttempts,
+      healthTimeoutMs, startupRetryMs, shutdownGraceMs, responseBytesMax, watchdogMs})
     assert(typeof name === 'string' && /^[a-z][a-z0-9-]*$/.test(name), 'invalid managed phase name')
     assert(typeof bundle === 'string' || Buffer.isBuffer(bundle), 'managed bundle must be text or bytes')
     assert.equal(sha(fs.readFileSync(workerd)), runtimePolicy.workerdSha256, 'workerd binary changed after policy creation')
