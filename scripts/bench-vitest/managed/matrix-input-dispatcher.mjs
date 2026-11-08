@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {fileURLToPath} from 'node:url'
 import {MATRIX_CANDIDATE_POLICY, selectMatrixCandidates} from './matrix-candidates.mjs'
+import {resolveMatrixCandidateProfile, selectMatrixProfileCandidates} from './matrix-candidate-profiles.mjs'
 import {createManagedExecutor} from './executor.mjs'
 import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY,
   canonicalReceiptJSON as canonicalManagedJSON} from './receipt.mjs'
@@ -40,7 +41,8 @@ function supported(data) {
  * One fresh shared validation can skip compilation; a miss still compiles.
  * The complete current execution ledger independently validates every receipt. */
 export async function dispatchManagedInputMatrix({project: projectArg, out: outArg, epoch = 1700000000000, seed = 42,
-  env = {NODE_ENV: 'test'}, control = false, suiteFiles, lookup, record, publish} = {}) {
+  env = {NODE_ENV: 'test'}, control = false, suiteFiles, candidateProfile = MATRIX_CANDIDATE_POLICY,
+  lookup, record, publish} = {}) {
   assert(projectArg && outArg, 'explicit research project/output required')
   assert(Number.isSafeInteger(epoch) && epoch >= 0 && Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffffffff)
   assert.equal(typeof control, 'boolean')
@@ -80,6 +82,7 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     process.env.VITEST = 'true'
     process.env.NODE_ENV ??= 'test'
     const compile = await createCertifiedManagedCompiler({project})
+    const profile = resolveMatrixCandidateProfile(candidateProfile)
     const {prepareManagedMatrix} = await import('./preparation.mjs')
     const planner = await import('./matrix-planner.mjs')
     const {createManagedMatrixPlan} = planner
@@ -89,7 +92,12 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     write(path.join(out, 'preparation.json'), suite.evidence)
     const plan = createManagedMatrixPlan(suite)
     write(path.join(out, 'matrix-plan.json'), plan)
-    const candidates = new Set(selectMatrixCandidates(suite.selected).map(row => row.instanceId))
+    const candidates = new Set((profile.label === MATRIX_CANDIDATE_POLICY ? selectMatrixCandidates(suite.selected)
+      : selectMatrixProfileCandidates(suite.selected, profile.label)).map(row => row.instanceId))
+    if (profile.label !== MATRIX_CANDIDATE_POLICY) {
+      result.candidatePolicy = profile.label
+      result.candidateProfile = profile
+    }
     result.selectedInstances = suite.selected.length; result.candidateInstances = candidates.size
     result.initialOrdinaryInstances = suite.selected.length - candidates.size; result.planKey = plan.key
     result.instances = suite.selected.map(row => ({instanceId: row.instanceId, project: row.project, file: row.file,
@@ -122,7 +130,9 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       candidateSelectorSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidates.mjs'))),
       inputValidatorSha256: sha(fs.readFileSync(path.join(here, 'resolved-compile-certificate.mjs'))),
       candidateEnvelopeSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-envelope.mjs'))),
-      compilationPolicy: BATCH_POLICY}
+      compilationPolicy: BATCH_POLICY,
+      ...(profile.label === MATRIX_CANDIDATE_POLICY ? {} : {candidateProfile: profile,
+        candidateProfileSelectorSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-profiles.mjs')))})}
     result.nativeFingerprintSha256 = nativeFingerprintSha256; result.host = preflightExecutor.host
     result.preflightPassed = true; result.nativePolicy = nativePolicy; result.supervisorPolicy = supervisorPolicy
     const prepared = new Map(suite.prepared.map(row => [row.instanceId, row]))
